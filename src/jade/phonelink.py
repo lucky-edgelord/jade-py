@@ -242,6 +242,23 @@ class Links:
         online = [p for p in self.phones.values() if p.online]
         return (online or list(self.phones.values()))[0]
 
+    def pick(self, want) -> list[Phone]:
+        """The phones a tool call names: none (the main one), a name, a list or comma-separated names, or "all" (every online one)."""
+        if want is None or want == "" or want == []:
+            return [self.get()]
+        names = want if isinstance(want, list) else [x.strip() for x in str(want).split(",") if x.strip()]
+        if any(str(n).lower() in ("all", "*", "every", "everyone") for n in names):
+            on = [p for p in self.phones.values() if p.online]
+            if not on:
+                raise ToolError("no phone is online right now. Phones: " + (", ".join(self.phones) or "none linked"))
+            return on
+        out: list[Phone] = []
+        for n in names:
+            p = self.get(str(n))
+            if p not in out:
+                out.append(p)
+        return out
+
     def list(self) -> list[dict]:
         return [p.describe() for p in self.phones.values()]
 

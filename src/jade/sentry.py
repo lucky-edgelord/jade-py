@@ -111,8 +111,24 @@ def normalize(raw: Any, flow_exists: Callable[[str], bool] | None = None) -> tup
         return cfg, ["Sentry.json must be a JSON object"], warnings
     cfg["enabled"] = raw.get("enabled") is True
     cfg["awake"] = raw.get("awake") is not False
-    if raw.get("phone"):
-        cfg["phone"] = str(raw["phone"])[:40]
+    devs = _names(raw.get("phones") if raw.get("phones") is not None else raw.get("phone"))
+    if devs:
+        cfg["phones"] = devs
+    for dn, dv in (raw.get("devices") or {}).items() if isinstance(raw.get("devices"), dict) else []:
+        if not isinstance(dv, dict):
+            continue
+        d: dict[str, Any] = {}
+        for k, v in (dv.get("systems") or {}).items():
+            if not cat(k):
+                warnings.append(f'{dn}: unknown system "{k}" ignored')
+            elif isinstance(v, bool):
+                d.setdefault("systems", {})[k] = v
+        ds = dv.get("settings") or {}
+        for k, lo, hi, df in (("location_interval_s", 10, 3600, 60), ("camera_interval_s", 0.5, 60, 1), ("camera_cell_threshold", 5, 100, 22)):
+            if k in ds:
+                d.setdefault("settings", {})[k] = _num(ds[k], lo, hi, df)
+        if d:
+            cfg.setdefault("devices", {})[_dev(dn)] = d
     for k, v in (raw.get("systems") or {}).items():
         if not cat(k):
             warnings.append(f'unknown system "{k}" ignored')
@@ -152,6 +168,9 @@ def normalize(raw: Any, flow_exists: Callable[[str], bool] | None = None) -> tup
             o["name"] = str(t["name"])[:80]
         if t.get("enabled") is False:
             o["enabled"] = False
+        tp = _names(t.get("phones") if t.get("phones") is not None else t.get("phone"))
+        if tp:
+            o["phones"] = tp
         if isinstance(t.get("when"), dict):
             o["when"] = t["when"]
         if isinstance(t.get("on"), dict):
@@ -192,8 +211,37 @@ def normalize(raw: Any, flow_exists: Callable[[str], bool] | None = None) -> tup
     return cfg, errors, warnings
 
 
-def is_on(cfg: dict, c: dict) -> bool:
+def _dev(n) -> str:
+    return re.sub(r"[^\w.-]+", "-", str(n).strip()).strip("-").lower()[:40]
+
+
+def _names(v) -> list[str]:
+    """Device names from a list or a comma-separated string (lower-case, as phones are named)."""
+    if v is None or v == "":
+        return []
+    items = v if isinstance(v, list) else str(v).split(",")
+    out = []
+    for x in items:
+        d = _dev(x)
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def is_on(cfg: dict, c: dict, phone: str | None = None) -> bool:
+    dv = ((cfg.get("devices") or {}).get(phone) or {}).get("systems") or {} if phone else {}
+    if c["id"] in dv:
+        return dv[c["id"]]
     return cfg["systems"][c["id"]] if c["id"] in cfg["systems"] else not c["sensitive"]
+
+
+def for_phone(cfg: dict, phone: str) -> dict:
+    """The rules one device gets: its own system switches and settings, and only the rules meant for it."""
+    dv = (cfg.get("devices") or {}).get(phone) or {}
+    out = {"enabled": cfg["enabled"], "awake": cfg.get("awake", True), "systems": {**cfg["systems"], **(dv.get("systems") or {})},
+           "settings": {**cfg["settings"], **(dv.get("settings") or {})}, "vars": dict(cfg.get("vars") or {}),
+           "triggers": [t for t in cfg["triggers"] if not t.get("phones") or phone in t["phones"]]}
+    return out
 
 
 def help_text() -> str:
@@ -202,7 +250,8 @@ def help_text() -> str:
 SYSTEMS (each is switched on or off; one only runs when it is on AND a rule uses it; sensitive ones need the user's yes):
 {systems}
 Also: any event you send with emit, and custom state var.<name> (action var).
-RULE (action set, trigger = {{...}}): id; name; enabled; when (a condition) or on (an event); for_s (must stay true this long); cooldown_s (default 60); max_per_hour (default 30); rearm ("clear" default, or "cooldown"); hours ("22:00-07:00"); alert {{notify:"text", vibrate:[ms on/off pattern…]}}; flow (name of a flow to run); input; snapshot (keep a camera picture); max_age_s (drop if older when it could run, default 600).
+DEVICES: up to several phones and tablets. Sentry runs on the ones in Sentry.json "phones" (default: every linked one). A rule with phones:["tablet"] runs only there; without it, on each. add_system / remove_system with phone switch a system on one device only (Sentry.json "devices": {{"tablet": {{"systems": {{…}}}}}}). A fire says which phone it came from (input.phone).
+RULE (action set, trigger = {{...}}): id; name; enabled; phones (which devices; default all); when (a condition) or on (an event); for_s (must stay true this long); cooldown_s (default 60); max_per_hour (default 30); rearm ("clear" default, or "cooldown"); hours ("22:00-07:00"); alert {{notify:"text", vibrate:[ms on/off pattern…]}}; flow (name of a flow to run); input; snapshot (keep a camera picture); max_age_s (drop if older when it could run, default 600).
 CONDITION: {{all:[…]}} {{any:[…]}} {{not:{{…}}}} or {{src, op: lt|le|gt|ge|eq|ne|in, value, clear}} (clear = where it lets go, so it does not flutter). Geofence: {{src:"geo", op:"inside"|"outside", lat, lon, radius_m, clear_m}}.
 EVENT RULE: on:{{event:"sms"|[names], where:{{field: value | {{eq, ne, in, contains, starts, ends, gt, ge, lt, le, exists}}}}}}.
 Example, phone face down in the dark: {{id:"buzz", when:{{all:[{{src:"motion.state",op:"eq",value:"face_down"}},{{src:"light.lux",op:"lt",value:2,clear:5}}]}}, for_s:3, alert:{{vibrate:[0,400,200,400]}}}}; an on rule with on:{{event:"notification",where:{{importance:{{ge:4}}}}}} reacts to urgent notifications; a rule with when user.idle_s gt 300 can run a flow that texts the listed emergency contacts.
@@ -256,13 +305,13 @@ class Sentry:
 
     # ---- which phones
     def targets(self, cfg: dict | None = None) -> list["Phone"]:
+        """The devices Sentry runs on: Sentry.json "phones", else settings.sentry_phone (names, commas), else every linked one."""
         links = getattr(self.jade, "phones", None)
         if not links or not links.phones:
             return []
-        want = (cfg or {}).get("phone") or self.jade.settings.sentry_phone or self.jade.settings.phone_default
+        want = (cfg or {}).get("phones") or _names(self.jade.settings.sentry_phone)
         if want:
-            p = links.phones.get(want)
-            return [p] if p else []
+            return [links.phones[n] for n in want if n in links.phones]
         return list(links.phones.values())
 
     async def apply(self, cfg: dict, phones: list["Phone"] | None = None) -> dict:
@@ -272,7 +321,7 @@ class Sentry:
         links = getattr(self.jade, "phones", None)
         targets = self.targets(cfg)
         for p in phones if phones is not None else (list(links.phones.values()) if links else []):
-            send = cfg if p in targets else {**default(), "enabled": False}   # a phone Sentry is not on gets its rules cleared
+            send = for_phone(cfg, p.name) if p in targets else {**default(), "enabled": False}   # a phone Sentry is not on gets its rules cleared
             if not p.online:
                 out["phones"][p.name] = {"offline": True}
                 continue
@@ -437,11 +486,14 @@ class Sentry:
                               "running": sysst.get("running") or [], "blocked": sysst.get("blocked") or {}, **({"error": st["error"]} if st.get("error") else {})}
         running = {s for ph in phones.values() for s in ph["running"]}
         blocked = {k: v for ph in phones.values() for k, v in ph["blocked"].items()}
+        want = cfg.get("phones") or _names(self.jade.settings.sentry_phone)
+        missing = [n for n in want if n not in phones]
         return {
-            "sentry": "on" if cfg["enabled"] else "off", "phones": phones or "no phone is linked",
+            "sentry": "on" if cfg["enabled"] else "off", "phones": phones or "no phone is linked", **({"not_linked": missing} if missing else {}),
+            "devices": cfg.get("devices") or {},
             "systems": [{"id": c["id"], "on": is_on(cfg, c), "state": "running" if c["id"] in running else f"blocked: {blocked[c['id']]}" if c["id"] in blocked else
                          ("waiting" if c["id"] in used else "idle (no rule uses it)") if is_on(cfg, c) else "off", "battery": c["cost"], "sensitive": c["sensitive"]} for c in CAT],
-            "triggers": [{"id": t["id"], "name": t.get("name"), "enabled": t.get("enabled") is not False, "mode": t.get("mode"), "flow": t.get("flow"),
+            "triggers": [{"id": t["id"], "name": t.get("name"), "enabled": t.get("enabled") is not False, "mode": t.get("mode"), "flow": t.get("flow"), "phones": t.get("phones") or "all",
                           "needs": systems_of(t), "off_systems": [s for s in systems_of(t) if not is_on(cfg, cat(s))]} for t in cfg["triggers"]],
             "problems": errs + self.errors, "notes": warns,
         }
@@ -511,21 +563,28 @@ async def sentry_tool(ctx: ToolContext, **a) -> str:
         c = cat(str(a.get("system") or a.get("id") or ""))
         if not c:
             raise ToolError("system is one of " + ", ".join(x["id"] for x in CAT))
+        dev = _dev(a["phone"]) if a.get("phone") else None
+
+        def switch(cfg, on):
+            if dev:
+                cfg.setdefault("devices", {}).setdefault(dev, {}).setdefault("systems", {})[c["id"]] = on
+            else:
+                cfg["systems"][c["id"]] = on
         if act == "remove_system":
-            await S.patch(lambda cfg: cfg["systems"].__setitem__(c["id"], False))
-            return _j({"ok": True, "removed": c["id"], "note": "it stops using any battery"})
+            await S.patch(lambda cfg: switch(cfg, False))
+            return _j({"ok": True, "removed": c["id"], **({"phone": dev} if dev else {}), "note": "it stops using any battery"})
         if c["sensitive"] and not await S.ask(ctx, f"Jade wants Sentry to use: {c['label']}", f"{c['gist']}\n\n{'no battery cost' if c['cost'] == 'none' else c['cost'] + ' battery use'}. You can switch it off any time."):
             return _j({"error": "The user said no."})
         if c["id"] in PERMS:
-            for p in S.targets():
+            for p in [x for x in S.targets() if not dev or x.name == dev]:
                 try:
                     st = await p.call("perms", {"perms": PERMS[c["id"]], "request": True})
                     if isinstance(st, dict) and not all(st.get(x) for x in PERMS[c["id"]]):
                         return _j({"error": f"Android on {p.name} did not give {c['label']} permission."})
                 except ToolError as e:
                     return _j({"error": str(e)})
-        r = await S.patch(lambda cfg: cfg["systems"].__setitem__(c["id"], True))
-        return _j({"ok": True, "added": c["id"], "battery": c["cost"], "note": "it only runs while a rule uses it", "problems": r["errors"]})
+        r = await S.patch(lambda cfg: switch(cfg, True))
+        return _j({"ok": True, "added": c["id"], **({"phone": dev} if dev else {}), "battery": c["cost"], "note": "it only runs while a rule uses it", "problems": r["errors"]})
     if act == "set":
         t = a.get("trigger") if isinstance(a.get("trigger"), dict) else None
         if not t:
@@ -535,7 +594,8 @@ async def sentry_tool(ctx: ToolContext, **a) -> str:
             raise ToolError("; ".join(errs))
         need = systems_of(probe["triggers"][0])
         r = await S.patch(lambda cfg: cfg.__setitem__("triggers", [x for x in cfg.get("triggers") or [] if x.get("id") != t["id"]] + [t]))
-        off = [s for s in need if not is_on(r["cfg"], cat(s))]
+        tp = probe["triggers"][0].get("phones") or [p.name for p in S.targets()]
+        off = sorted({s for s in need for d in (tp or [None]) if not is_on(r["cfg"], cat(s), d)})
         return _j({"ok": True, "id": t["id"], "uses": need,
                    **({"needs_switching_on": off, "note": f"these systems are off, so the rule cannot fire yet: use add_system for {', '.join(off)}"} if off else {}),
                    **({} if r["cfg"]["enabled"] else {"note2": "Sentry itself is off: use on"}),
@@ -578,7 +638,7 @@ SPEC = {
         "action": {"type": "string", "enum": ["help", "list", "systems", "add_system", "remove_system", "set", "remove", "enable", "disable", "on", "off", "test", "state", "idle", "emit", "var", "log"]},
         "system": {"type": "string", "description": "add_system / remove_system: " + ", ".join(c["id"] for c in CAT)}, "id": {"type": "string", "description": "a rule id"},
         "trigger": {"type": "object", "description": "set: the rule (see help)"}, "event": {"type": "string"}, "data": {"type": "object"}, "name": {"type": "string"}, "value": {},
-        "n": {"type": "number"}, "phone": {"type": "string", "description": "state / idle / emit: which phone"}},
+        "n": {"type": "number"}, "phone": {"type": "string", "description": "state / idle / emit: which device; add_system / remove_system: switch it on that device only"}},
         "required": ["action"]},
 }
 

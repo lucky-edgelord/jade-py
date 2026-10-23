@@ -302,3 +302,93 @@ def test_normalize_and_systems():
     assert "duplicate trigger id a" in errs and any("letters, digits" in e for e in errs) and any("on.event" in e for e in errs) and any("hours" in e for e in errs)
     assert 'unknown system "nope" ignored' in warns
     assert SE.systems_of(cfg["triggers"][0]) == ["location", "screen"] and SE.systems_of(cfg["triggers"][1]) == ["calls", "notifications"]
+
+
+class SlowPhone(FakePhone):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+
+    def run(self, op, args):
+        if op == "phone" and args.get("action") == "volume":
+            time.sleep(0.6)   # each device takes a while: together they should not take four times as long
+            return {"media": {"level": 0.5}, "device": self.name}
+        if op == "senses" and args.get("action") == "camera_snap":
+            return {"ok": True, "jpeg_base64": JPEG, "facing": "back"}
+        return super().run(op, args)
+
+
+async def test_four_devices_at_once(served, fake):
+    jade, base = served
+    names = ["Pixel", "Tablet", "Kitchen Tab", "Old Phone"]
+    phones = [SlowPhone(n) for n in names]
+    stop = asyncio.Event()
+    tasks = []
+    for i, ph in enumerate(phones):
+        q = asyncio.Queue()
+
+        async def loop(ph=ph, q=q, i=i):
+            # the phone side runs its ops in threads, like Jade Link's pool
+            h = {"Authorization": "Bearer tok"}
+            async with httpx.AsyncClient(base_url=base, headers=h, timeout=40) as c:
+                while not stop.is_set():
+                    while not q.empty():
+                        await c.post("/v1/link/events", json={"device_id": f"dev-{i}", "events": [q.get_nowait()]})
+                    r = await c.post("/v1/link/poll", json={"device": {"id": f"dev-{i}", "name": ph.name, "model": "Test"}, "wait": 1})
+                    for req in r.json()["requests"]:
+                        async def answer(req=req):
+                            res = await asyncio.to_thread(ph.run, req["op"], req["args"])
+                            await c.post("/v1/link/result", json={"device_id": f"dev-{i}", "id": req["id"], "result": res})
+                        asyncio.create_task(answer())
+        ph.q = q
+        tasks.append(asyncio.create_task(loop()))
+    try:
+        want = {"pixel", "tablet", "kitchen-tab", "old-phone"}
+        assert await wait_for(lambda: want <= {n for n, p in jade.phones.phones.items() if p.online}, 10)
+        t0 = time.time()
+        out = await jade.run_tool("phone", {"action": "volume", "phone": "all"})
+        took = time.time() - t0
+        assert all(f"### {n}" in out for n in want) and took < 1.8, (took, out)
+        out = await jade.run_tool("phone", {"action": "volume", "phone": "tablet, kitchen-tab"})
+        assert "### tablet" in out and "### kitchen-tab" in out and "### pixel" not in out
+        with pytest.raises(RuntimeError, match="one phone at a time"):
+            await jade.run_tool("phone", {"action": "sms_send", "phone": "all", "to": "1", "text": "x"})
+        with pytest.raises(RuntimeError, match="no phone named nope"):
+            await jade.run_tool("phone", {"action": "volume", "phone": "pixel,nope"})
+        # two cameras at once: both pictures reach the model, each labelled with its device
+        fake.script = [{"tool_calls": [("senses", {"action": "camera_snap", "phone": "pixel,tablet"})]}, {"content": "two pictures"}]
+        s = jade.session()
+        s.tools_loaded.append("senses")
+        await s.ask("look around")
+        pic = [m for m in fake.requests[-1]["messages"] if m.get("images")][0]
+        assert len(pic["images"]) == 2 and "pixel's back camera" in pic["content"] and "tablet's back camera" in pic["content"]
+        # Sentry on three of them; one rule only on the tablet; the camera only on the kitchen tablet
+        jade.flows.save({"name": "Seen", "steps": [{"type": "set", "fields": {"from": "{{ $json.phone }}"}}]})
+        cfg = {"enabled": True, "phones": ["pixel", "tablet", "kitchen-tab"], "devices": {"kitchen-tab": {"systems": {"camera": True}}},
+               "triggers": [{"id": "everywhere", "on": {"event": "shake"}, "flow": "Seen"},
+                            {"id": "tablet-only", "phones": "tablet", "on": {"event": "headset"}, "alert": {"notify": "hi"}},
+                            {"id": "motion", "phones": ["kitchen-tab"], "when": {"src": "camera.change", "op": "gt", "value": 20}, "flow": "Seen"}]}
+        jade.vault.write(SE.PATH, json.dumps(cfg))
+        await jade.sentry.watch()
+        by = {p.name: p for p in phones}
+        rules = {n: {t["id"] for t in (by[k].rules or {}).get("triggers", [])} for n, k in [("pixel", "Pixel"), ("tablet", "Tablet"), ("kitchen-tab", "Kitchen Tab"), ("old-phone", "Old Phone")]}
+        assert rules == {"pixel": {"everywhere"}, "tablet": {"everywhere", "tablet-only"}, "kitchen-tab": {"everywhere", "motion"}, "old-phone": set()}, rules
+        assert by["Kitchen Tab"].rules["systems"].get("camera") is True and "camera" not in by["Pixel"].rules["systems"]
+        assert by["Old Phone"].rules["enabled"] is False
+        listing = json.loads(await jade.run_tool("sentry", {"action": "list"}))
+        assert set(listing["phones"]) == {"pixel", "tablet", "kitchen-tab"} and listing["triggers"][1]["phones"] == ["tablet"]
+        # a per-device switch from the tool
+        await jade.run_tool("sentry", {"action": "add_system", "system": "light", "phone": "tablet"})
+        assert json.loads(jade.vault.read(SE.PATH))["devices"]["tablet"]["systems"]["light"] is True
+        # fires from two devices at once each run the flow, and the flow knows which device
+        for ph, qid in ((by["Tablet"], "t@1"), (by["Kitchen Tab"], "k@1")):
+            ph.q.put_nowait({"type": "sentry_fire", "data": {"qid": qid, "id": "everywhere", "at": time.time() * 1000, "flow": "Seen", "max_age_s": 600}})
+        assert await wait_for(lambda: "t@1" in by["Tablet"].acked and "k@1" in by["Kitchen Tab"].acked, 10)
+        ran = [x for x in jade.sentry.log if x["kind"] == "ran"]
+        assert {x["phone"] for x in ran} == {"tablet", "kitchen-tab"}
+        outs = [r["output"] for r in jade.flows.recent() if r["flow"] == "Seen"]
+        assert sorted(o["from"] for o in outs) == ["kitchen-tab", "tablet"]
+    finally:
+        stop.set()
+        for t in tasks:
+            await t

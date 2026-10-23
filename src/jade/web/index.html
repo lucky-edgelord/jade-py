@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#040807">
+<title>Jade</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Chakra+Petch:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="/ui/app.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2 29 9v14l-13 7-13-7V9z' fill='%231fe5a5'/%3E%3C/svg%3E">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <a class="brand" href="#/" aria-label="Jade home"><span class="pi-mark">J</span><span class="logo" data-text="JADE">JADE</span></a>
+    <span class="chip hide-sm" id="modelChip" title="The model"><span class="dot" id="statusDot"></span><span id="modelName">…</span></span>
+    <span class="grow"></span>
+    <button class="chip appr" id="apprBtn" hidden title="Tool calls waiting for your yes"><span class="badge" id="apprCount">0</span> waiting</button>
+    <a class="btn btn-ghost" id="phoneSetup" href="jadelink://setup" hidden>Phone setup</a>
+    <button class="btn btn-ghost" id="logoutBtn" title="Forget the token on this device">Sign out</button>
+  </header>
+  <nav class="rail" id="rail" aria-label="Sections">
+    <a href="#/" data-r="home"><i>◆</i><span>Home</span></a>
+    <a href="#/chat" data-r="chat"><i>▸</i><span>Chat</span></a>
+    <a href="#/vault" data-r="vault"><i>▤</i><span>Vault</span></a>
+    <a href="#/flows" data-r="flows"><i>⇉</i><span>Flows</span></a>
+    <a href="#/schedules" data-r="schedules"><i>◷</i><span>Schedules</span></a>
+    <a href="#/sentry" data-r="sentry"><i>◉</i><span>Sentry</span></a>
+    <a href="#/phones" data-r="phones"><i>▯</i><span>Phones</span></a>
+    <a href="#/logs" data-r="logs"><i>≡</i><span>Logs</span></a>
+    <a href="#/settings" data-r="settings"><i>⚙</i><span>Settings</span></a>
+  </nav>
+  <main id="view" tabindex="-1"></main>
+</div>
+<div id="toasts" class="toast" aria-live="polite"></div>
+<div id="modal"></div>
+<script src="/ui/app.js"></script>
+</body>
+</html>

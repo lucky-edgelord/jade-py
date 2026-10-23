@@ -94,7 +94,7 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
 
     app = FastAPI(title="Jade", version=__version__, description="Jade, the agent from Jade Vault, over HTTP", lifespan=lifespan)
     st = jade.settings
-    state: dict[str, Any] = {"busy": set(), "steppers": {}, "current": None, "started": time.time()}
+    state: dict[str, Any] = {"busy": set(), "steppers": {}, "running": {}, "current": None, "started": time.time()}
     lock = asyncio.Lock()
 
     def auth(request: Request):
@@ -164,13 +164,15 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
         if s.id in state["busy"]:
             return err(409, "busy", "Jade is already working in this chat. Try again when she is done (see /v1/status).", busy=True)
         state["busy"].add(s.id)
+        state["running"][s.id] = s
         if truthy(q.get("stream")):
             async def gen():
                 try:
-                    async for ev in s.run(message):
+                    async for ev in s.run(message, q.get("images") if isinstance(q.get("images"), list) else None):
                         yield {"event": ev.type, "data": json.dumps({**ev.to_dict(), "session": s.id}, ensure_ascii=False)}
                 finally:
                     state["busy"].discard(s.id)
+                    state["running"].pop(s.id, None)
             return EventSourceResponse(gen())
         if q.get("wait") is not None and not truthy(q.get("wait")):
             async def bg():
@@ -178,12 +180,14 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
                     await run_turn(s, message)
                 finally:
                     state["busy"].discard(s.id)
+                    state["running"].pop(s.id, None)
             asyncio.create_task(bg())
             return JSONResponse({"ok": True, "api": API, "accepted": True, "session": info(s), "message": "Jade is working on it. Poll /v1/status, then read /v1/history."}, status_code=202)
         try:
             out = await run_turn(s, message, truthy(q.get("tools", "1")))
         finally:
             state["busy"].discard(s.id)
+            state["running"].pop(s.id, None)
         return JSONResponse(out, status_code=200 if out["ok"] else 502)
 
     @app.get("/v1/chat", dependencies=[Depends(auth)])
@@ -285,7 +289,10 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
         s, stp = state["steppers"].pop(sid, (None, None))
         if s:
             s.cancel()
-        return {"ok": True, "api": API}
+        r = state["running"].get(sid)
+        if r:
+            r.cancel()
+        return {"ok": True, "api": API, "stopped": bool(s or r)}
 
     # ---- tools
     @app.get("/v1/tools", dependencies=[Depends(auth)])
@@ -324,7 +331,13 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
     @app.get("/v1/schedules", dependencies=[Depends(auth)])
     async def schedules():
         sch = getattr(jade, "scheduler", None)
-        return {"ok": True, "api": API, "schedules": sch.list if sch else [], "daemon": jade.daemon_running}
+        out = []
+        for x in (sch.list if sch else []):
+            try:
+                out.append({**x, "when_text": sch.when(x)})
+            except Exception:  # noqa: BLE001
+                out.append(x)
+        return {"ok": True, "api": API, "schedules": out, "daemon": jade.daemon_running}
 
     # ---- flows
     @app.get("/v1/flows", dependencies=[Depends(auth)])
@@ -433,6 +446,8 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
     async def health():
         return {"ok": True}
 
+    from .dashboard import add_routes
+    add_routes(app, jade, auth, err, state)
     return app
 
 

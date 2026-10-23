@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     phone_confirm: Literal["phone", "jade", "off"] = Field(default="phone", description="who approves calls and texts: the person on the phone, jade's approver (dashboard, REPL), or nobody")
     sentry_allow: list[str] = Field(default_factory=list, description="numbers Sentry-run flows may text or call without asking (Jade cannot change this list)")
     sentry_limit: int = Field(default=6, description="texts and calls Sentry flows may make per hour")
-    sentry_phone: str = Field(default="", description="the phone Sentry runs on (default: phone_default, else every linked phone)")
+    sentry_phone: str = Field(default="", description="the phones and tablets Sentry runs on, names separated by commas (default: every linked one; Sentry.json \"phones\" wins)")
     look_images: bool = Field(default=True, description="show pictures (camera, screenshots, look) to the model; off for models without vision")
 
     @field_validator("sentry_allow", mode="before")
