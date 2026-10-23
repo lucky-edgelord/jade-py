@@ -88,6 +88,14 @@
 </section>
 
 <section>
+  <h2>Talk and kiosk <span id="kioskPill" class="pill">off</span></h2>
+  <p class="help">Talk mode is in the dashboard (the Talk button): she listens, answers out loud and listens again, with only her avatar on screen. Kiosk mode makes this device Jade's: Jade Link becomes the home screen, full screen and pinned in front, for a tablet on a wall or a spare phone.</p>
+  <div class="item"><div><div class="t">Start talk mode when it opens</div><div class="d">the dashboard opens straight into hands-free talking</div></div><label class="switch"><input id="autoTalk" type="checkbox"><span></span></label></div>
+  <div class="item"><div><div class="t">Kiosk mode</div><div class="d" id="kioskNote">home screen, full screen, always in front</div></div><label class="switch"><input id="kiosk" type="checkbox"><span></span></label></div>
+  <p class="help" style="margin-top:8px">For a real lock (no way out without turning it off here), make Jade Link the device owner once, from a computer, on a freshly reset device: <code>adb shell dpm set-device-owner app.netrunner.jadelink/app.netrunner.jade.AdminReceiver</code>. Without that, Android's screen pinning keeps it in front.</p>
+</section>
+
+<section>
   <h2>What Jade may use</h2>
   <p class="help">Each needs your yes once. Calls and texts still ask you here first (unless jade-py is set otherwise).</p>
   <div id="access"></div>
@@ -105,12 +113,13 @@ function load() {
   try { cfg = JSON.parse(L.config()); } catch { cfg = {}; }
   $('server').value = cfg.server || ''; $('token').value = cfg.token || ''; $('name').value = cfg.name || '';
   $('dialOut').checked = !!cfg.dial_out; $('listen').checked = !!cfg.listen; $('port').value = cfg.port || 8765; $('lan').checked = cfg.lan !== false;
+  $('autoTalk').checked = !!cfg.auto_talk;
   $('foot').textContent = `Jade Link ${cfg.version || ''} · ${cfg.model || ''} · device ${cfg.device_id || ''}`;
   snippet();
 }
 
 function save(extra = {}) {
-  const o = { server: $('server').value.trim(), token: $('token').value.trim(), name: $('name').value.trim(), dial_out: $('dialOut').checked,
+  const o = { auto_talk: $('autoTalk').checked, server: $('server').value.trim(), token: $('token').value.trim(), name: $('name').value.trim(), dial_out: $('dialOut').checked,
               listen: $('listen').checked, port: +$('port').value || 8765, lan: $('lan').checked, ...extra };
   const r = JSON.parse(L.save(JSON.stringify(o)));
   if (r.error) msg('dialMsg', r.error, false);
@@ -134,6 +143,10 @@ function refresh() {
   if (cfg.dial_out && !d.connected && d.error) msg('dialMsg', d.error, false); else if (cfg.dial_out && d.connected) msg('dialMsg', `Jade has asked ${d.answered || 0} thing${d.answered === 1 ? '' : 's'} since it connected.`, true);
   if (!cfg.listen) pill('listenPill', 'off'); else if (l.listening) pill('listenPill', 'listening on ' + (l.port || cfg.port), 'ok'); else pill('listenPill', l.error ? 'cannot listen' : 'starting…', l.error ? 'bad' : 'warn');
   snippet();
+  const k = st.kiosk || {};
+  $('kiosk').checked = !!k.on;
+  if (!k.on) pill('kioskPill', 'off'); else if (k.locked) pill('kioskPill', k.owner ? 'locked (owner)' : 'locked', 'ok'); else pill('kioskPill', k.pinned ? 'pinned' : 'on', 'warn');
+  $('kioskNote').textContent = !k.on ? 'home screen, full screen, always in front' : k.locked ? 'on and locked: turn it off here to leave' : k.pinned ? 'on: pinned to the screen (hold Back and Overview to unpin)' : 'on: choose Jade Link as the home app if Android asks';
   asks(st.asks || []);
   access(st.info || {});
 }
@@ -149,6 +162,7 @@ function access(info) {
   const p = info.permissions || {};
   const perm = (...k) => k.every(x => p['android.permission.' + x] !== false);
   const rows = [
+    ['Talk mode voice', 'speech recognizer and text-to-speech on this device', !!(st.voice && st.speech_recognizer && perm('RECORD_AUDIO')), 'perms:senses'],
     ['Calls, texts and contacts', 'place calls, send and read texts, look up contacts', perm('CALL_PHONE', 'SEND_SMS', 'READ_SMS', 'READ_CONTACTS', 'READ_PHONE_STATE'), 'perms:phone'],
     ['Camera, microphone, location', 'photos, recordings, where the phone is', perm('CAMERA', 'RECORD_AUDIO', 'ACCESS_FINE_LOCATION'), 'perms:senses'],
     ['Notifications', 'so Jade Link can show Jade\'s questions', perm('POST_NOTIFICATIONS'), 'perms:notify'],
@@ -180,6 +194,8 @@ document.addEventListener('click', e => {
   if (t.id === 'newTokBtn') { cfg.listen_token = L.newListenToken(); snippet(); }
 });
 for (const id of ['dialOut', 'listen', 'lan']) $(id).addEventListener('change', () => save());
+$('autoTalk').addEventListener('change', () => save({ auto_talk: $('autoTalk').checked }));
+$('kiosk').addEventListener('change', () => { try { window.NetrunnerAndroid.setKiosk($('kiosk').checked); } catch {} setTimeout(refresh, 800); });
 for (const id of ['server', 'token', 'name', 'port']) { $(id).addEventListener('input', () => { dirty = true; if (id === 'name' || id === 'port') snippet(); }); $(id).addEventListener('change', () => save()); }
 
 window.onTest = r => msg('dialMsg', r.ok ? `jade-py ${r.status?.version || ''} answers (model ${r.status?.model || '?'}).` : r.error, !!r.ok);

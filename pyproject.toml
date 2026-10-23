@@ -50,7 +50,7 @@ Homepage = "https://github.com/lucky-edgelord/jade-py"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jade = ["seed/**/*", "seed/*", "*.json", "tools/*.json", "js/*.js", "web/*"]
+jade = ["seed/**/*", "seed/*", "*.json", "tools/*.json", "js/*.js", "web/*", "web/avatar/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

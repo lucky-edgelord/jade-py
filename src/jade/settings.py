@@ -14,6 +14,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 CONFIG_PATH = Path(os.environ.get("JADE_CONFIG", Path.home() / ".config" / "jade" / "config.toml"))
 
+
+def config_path() -> Path:
+    """Where the config is, looked up when needed ($JADE_CONFIG can change after import, e.g. in tests)."""
+    return Path(os.environ.get("JADE_CONFIG", Path.home() / ".config" / "jade" / "config.toml"))
+
 ProviderName = Literal["ollama", "ollama-cloud", "llamacpp", "openai", "groq", "openrouter", "lmstudio", "vllm", "deepseek", "mistral", "gemini", "together", "custom"]
 
 # OpenAI-compatible endpoints by name (key comes from settings.api_key or the env var named here)
@@ -159,6 +164,8 @@ class Settings(BaseSettings):
     sentry_allow: list[str] = Field(default_factory=list, description="numbers Sentry-run flows may text or call without asking (Jade cannot change this list)")
     sentry_limit: int = Field(default=6, description="texts and calls Sentry flows may make per hour")
     sentry_phone: str = Field(default="", description="the phones and tablets Sentry runs on, names separated by commas (default: every linked one; Sentry.json \"phones\" wins)")
+    stt_provider: str = Field(default="", description='speech to text for talk mode when a device has no recognizer of its own: a provider name (groq, openai, ollama…; empty = the chat provider)')
+    stt_model: str = Field(default="", description="the transcription model, e.g. whisper-large-v3-turbo (Groq) or whisper-1 (OpenAI); empty = off")
     look_images: bool = Field(default=True, description="show pictures (camera, screenshots, look) to the model; off for models without vision")
 
     @field_validator("sentry_allow", mode="before")
@@ -169,7 +176,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     @classmethod
     def load(cls, path: Path | str | None = None, **overrides: Any) -> "Settings":
-        p = Path(path) if path else CONFIG_PATH
+        p = Path(path) if path else config_path()
         data: dict[str, Any] = {}
         if p.is_file():
             data = tomllib.loads(p.read_text())
@@ -180,7 +187,7 @@ class Settings(BaseSettings):
         return s
 
     def save(self, path: Path | str | None = None) -> Path:
-        p = Path(path) if path else CONFIG_PATH
+        p = Path(path) if path else config_path()
         p.parent.mkdir(parents=True, exist_ok=True)
         d = self.model_dump(mode="json", exclude_none=True)
         p.write_text(tomli_w.dumps(d))

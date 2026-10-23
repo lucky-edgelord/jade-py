@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, RedirectResponse, Response
 
 from . import __version__
-from .settings import CONFIG_PATH, Settings
+from .settings import Settings, config_path
 
 if TYPE_CHECKING:
     from .core import Jade
@@ -210,7 +210,7 @@ def add_routes(app: FastAPI, jade: "Jade", auth: Callable, err: Callable, state:
     async def settings_get():
         s = st()
         schema = Settings.model_json_schema()
-        return {"ok": True, "values": _masked(s.model_dump(mode="json")), "schema": schema, "config": str(getattr(jade, "config_path", CONFIG_PATH)),
+        return {"ok": True, "values": _masked(s.model_dump(mode="json")), "schema": schema, "config": str(getattr(jade, "config_path", None) or config_path()),
                 "restart": sorted(RESTART_FIELDS)}
 
     @app.patch("/v1/settings", dependencies=dep)
@@ -229,7 +229,7 @@ def add_routes(app: FastAPI, jade: "Jade", auth: Callable, err: Callable, state:
         except Exception as e:  # noqa: BLE001 - pydantic says what is wrong
             return err(400, "invalid", str(e))
         # write only what changed into the config file, keeping the rest of it as the user wrote it
-        path = Path(getattr(jade, "config_path", None) or CONFIG_PATH)
+        path = Path(getattr(jade, "config_path", None) or config_path())
         data: dict = {}
         if path.is_file():
             try:
@@ -267,6 +267,36 @@ def add_routes(app: FastAPI, jade: "Jade", auth: Callable, err: Callable, state:
         if restart:
             notes.append("restart jade serve for: " + ", ".join(restart))
         return {"ok": True, "changed": sorted(changes), "notes": notes, "saved": str(path)}
+
+    # ---------------------------------------------------------------- hearing (talk mode on devices without a recognizer)
+    @app.post("/v1/transcribe", dependencies=dep)
+    async def transcribe(request: Request, language: str = ""):
+        s = st()
+        if not s.stt_model:
+            return err(400, "no_stt", "no transcription model is set (stt_model in the settings)")
+        audio = await request.body()
+        if not audio or len(audio) > 25 * 1024 * 1024:
+            return err(400, "bad_audio", "send a WAV body of up to 25 MB")
+        prov = s.stt_provider or s.provider
+        if prov in ("ollama", "ollama-cloud"):
+            base = (s.host.rstrip("/") if prov == "ollama" else "https://ollama.com") + "/v1"
+            key = s.ollama_key if prov == "ollama-cloud" else ""
+        else:
+            base, key = s.openai_base_and_key(prov)
+        import httpx
+        files = {"file": ("speech.wav", audio, "audio/wav")}
+        data = {"model": s.stt_model, "response_format": "json", "temperature": "0", **({"language": language} if language else {})}
+        try:
+            async with httpx.AsyncClient(timeout=120) as c:
+                r = await c.post(base + "/audio/transcriptions", files=files, data=data, headers={"Authorization": f"Bearer {key}"} if key else {})
+        except httpx.HTTPError as e:
+            return err(502, "stt_unreachable", f"{prov} could not be reached: {e}")
+        if r.status_code >= 400:
+            return err(502, "stt_failed", f"{prov} could not transcribe with {s.stt_model}: HTTP {r.status_code} {r.text[:200]}")
+        try:
+            return {"ok": True, "text": str(r.json().get("text") or "").strip()}
+        except ValueError:
+            return {"ok": True, "text": r.text.strip()}
 
     # ---------------------------------------------------------------- logs
     @app.get("/v1/logs", dependencies=dep)

@@ -7,6 +7,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--void);color:var(--fg);font-family:var(--f-body);font-size:14px;line-height:1.45;overflow:hidden}
 body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
@@ -17,7 +18,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
    radial-gradient(900px 500px at -10% 110%, rgba(255,184,198,.06), transparent 60%);}
 a{color:var(--cy)}
 button,input,select,textarea{font:inherit;color:inherit}
-#app{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:var(--rail) 1fr;grid-template-rows:var(--top) 1fr;grid-template-areas:"top top" "rail main"}
+#app{position:relative;z-index:1;height:100%;display:grid;grid-template-columns:var(--rail) minmax(0,1fr);grid-template-rows:var(--top) 1fr;grid-template-areas:"top top" "rail main"}
 .top{grid-area:top;display:flex;align-items:center;gap:10px;padding:0 14px;border-bottom:1px solid var(--line);background:rgba(4,8,7,.85);backdrop-filter:blur(4px)}
 .brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--fg)}
 .grow{flex:1}
@@ -26,7 +27,8 @@ button,input,select,textarea{font:inherit;color:inherit}
 .rail a i{font-style:normal;font-size:17px;line-height:1}
 .rail a:hover{color:var(--fg);background:rgba(31,229,165,.05)}
 .rail a.on{color:var(--yl);border-color:var(--yl);background:rgba(31,229,165,.07);text-shadow:0 0 10px rgba(31,229,165,.45)}
-main{grid-area:main;overflow:auto;min-width:0;padding:16px;outline:none}
+main{grid-area:main;overflow:auto;overflow-x:hidden;min-width:0;padding:16px;outline:none}
+.pane{overflow-wrap:anywhere} .scroll-x{overflow-x:auto;max-width:100%}
 main.full{padding:0;overflow:hidden}
 
 .disp{font-family:var(--f-disp);letter-spacing:.08em;text-transform:uppercase}
@@ -174,7 +176,8 @@ details>summary{cursor:pointer;list-style:none} details>summary::-webkit-details
 /* small screens: the rail becomes a bar along the bottom; side lists fold up */
 @media (max-width:760px){
   :root{--top:48px}
-  #app{grid-template-columns:1fr;grid-template-rows:var(--top) 1fr auto;grid-template-areas:"top" "main" "rail"}
+  #app{grid-template-columns:minmax(0,1fr);grid-template-rows:var(--top) minmax(0,1fr) auto;grid-template-areas:"top" "main" "rail"}
+  .top{gap:6px;padding:0 8px} .top .btn{padding:4px 6px;letter-spacing:.08em}
   .rail{flex-direction:row;border-right:0;border-top:1px solid var(--line);padding:2px 4px calc(2px + env(safe-area-inset-bottom,0px));overflow-x:auto;overflow-y:hidden}
   .rail a{flex:1 0 auto;min-width:58px;border-left:0;border-top:2px solid transparent;padding:6px 4px}
   .rail a.on{border-top-color:var(--yl)}
@@ -191,3 +194,48 @@ details>summary{cursor:pointer;list-style:none} details>summary::-webkit-details
   .logo{font-size:18px}
 }
 @media (min-width:761px){ .show-sm{display:none!important} }
+
+/* the drawer ("tray", as in the app): chats and status */
+.icon{padding:4px 6px}
+.drawer-bg{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .2s}
+.drawer{position:fixed;top:0;bottom:0;left:0;z-index:61;width:min(86vw,360px);display:flex;flex-direction:column;gap:6px;background:var(--panel);border-right:1px solid var(--line-hot);transform:translateX(-102%);transition:transform .22s ease;overflow-y:auto;padding:calc(10px + env(safe-area-inset-top,0px)) 10px calc(10px + env(safe-area-inset-bottom,0px))}
+body.drawer-open .drawer{transform:none} body.drawer-open .drawer-bg{opacity:1;pointer-events:auto}
+.drawer-h{display:flex;align-items:center;gap:10px;padding:4px 4px 8px;border-bottom:1px solid var(--line)}
+.drawer-sec{padding:8px 4px;border-bottom:1px solid var(--line)}
+.drawer-sec .pane-h{margin-bottom:6px}
+.drawer .hud div{margin:2px 0}
+.hud{font-family:var(--f-mono);font-size:11.5px;color:var(--dim)} .hud b{color:var(--fg);font-weight:600}
+.drawer-nav{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.drawer-nav a{font-family:var(--f-disp);font-weight:700;letter-spacing:.12em;text-transform:uppercase;font-size:12px;padding:8px 10px;border:1px solid var(--line);color:var(--fg);text-decoration:none}
+.drawer-nav a:hover{border-color:var(--yl);color:var(--yl)}
+@media (prefers-reduced-motion:reduce){.drawer,.drawer-bg{transition:none}}
+
+/* the avatar stage inside the chat */
+#stageSlot .jade-stage{height:clamp(150px,30vh,300px);transition:height .25s ease}
+#stageSlot .jade-stage.compact{height:76px}
+#stageSlot .jade-stage.compact .jade-bubble{left:88px;right:8px;top:9px;bottom:auto;max-height:58px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;font-size:12px;line-height:1.4;padding:4px 10px}
+#stageSlot .jade-stage.compact .jade-bubble .who,#stageSlot .jade-stage.compact .jade-label,#stageSlot .jade-stage.compact .hide-compact{display:none}
+.jade-ctrls .btn[aria-pressed="true"]{color:#00140c;background:var(--yl);border-color:var(--yl)}
+#talkBtn[aria-pressed="true"]{animation:glow 1.6s infinite}
+
+/* talk mode's companion screen: only her avatar on her background (from the app) */
+body.hf-solo{overflow:hidden}
+body.hf-solo > #jadeStage{position:fixed;inset:0;width:100%;height:100% !important;max-height:none;z-index:9500;border:0;margin:0;touch-action:manipulation}
+body.hf-solo > #jadeStage .jade-ctrls, body.hf-solo > #jadeStage .jade-label, body.hf-solo > #jadeStage .jade-status{display:none !important}
+body.hf-solo > #jadeStage .jade-bubble{left:14px;right:14px;top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 18px);max-height:38%;display:block;-webkit-line-clamp:unset;overflow-y:auto;font-size:15px;line-height:1.5;padding:10px 14px}
+body.hf-solo > #jadeStage .jade-bubble[hidden]{display:none}
+#hfExit{display:none}
+body.hf-solo > #jadeStage #hfExit{display:flex;position:absolute;z-index:5;top:calc(env(safe-area-inset-top,0px) + 10px);right:12px;width:44px;height:44px;border-radius:50%;align-items:center;justify-content:center;border:1px solid rgba(var(--theme-rgb,31,229,165),.35);background:rgba(0,0,0,.25);color:rgba(var(--theme-rgb,31,229,165),.9);font:600 18px/1 system-ui,sans-serif;opacity:.28;transition:opacity .2s}
+body.hf-solo > #jadeStage #hfExit:active, body.hf-solo > #jadeStage #hfExit:focus-visible, body.hf-solo > #jadeStage #hfExit:hover{opacity:.9}
+
+/* kiosk (Jade Link as a dedicated device's home screen): no sign-out, nothing that leaves */
+body.kiosk #logoutBtn{display:none}
+
+/* on a phone: the tab bar keeps the main pages; the rest are in the drawer */
+@media (max-width:760px){
+  .rail a.more{display:none}
+  .rail a{flex:1 1 0;min-width:0}
+  h1.page{font-size:17px}
+  .row-item{flex-wrap:wrap}
+}
+@media (min-width:761px){ #drawerBtn{display:none} }

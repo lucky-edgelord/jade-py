@@ -1,6 +1,10 @@
 package app.netrunner.jade;
 
 import android.app.Activity;
+import android.app.ActivityManager;
+import android.app.admin.DevicePolicyManager;
+import android.content.ComponentName;
+import android.content.IntentFilter;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -32,14 +36,18 @@ import java.util.Map;
 
 /**
  * Jade Link's screen: a WebView that shows the setup page (assets/setup.html: where jade-py is, listening, permissions,
- * screen control, Jade's questions) and, once connected, jade-py's dashboard. The JadeLink bridge answers only the
- * setup page that ships inside the app, never the dashboard or any other site.
+ * screen control, Jade's questions, kiosk) and, once connected, jade-py's dashboard. Two bridges:
+ *   JadeLink          settings and status, for the setup page inside the app only;
+ *   NetrunnerAndroid  talk mode's voice (TTS, speech recognition) and kiosk mode, the same names as the Jade Vault app,
+ *                     for the setup page and for the dashboard of the jade-py this phone is connected to, never other sites.
+ * Kiosk mode (as in the app): Jade Link is the home screen, full screen, pinned in front; as device owner a real lock.
  */
 public class MainActivity extends Activity {
     static final int REQ_PERMS = 17;
     static final int BG = 0xff040807;
     static final String SETUP = "file:///android_asset/setup.html";
     WebView web;
+    Voice voice;
     volatile String url = SETUP;
 
     @Override
@@ -56,6 +64,8 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         web.addJavascriptInterface(new Bridge(), "JadeLink");
+        voice = new Voice(this);
+        web.addJavascriptInterface(new Native(), "NetrunnerAndroid");
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView v, String u, android.graphics.Bitmap f) { url = u == null ? "" : u; }
@@ -64,6 +74,7 @@ public class MainActivity extends Activity {
         LinkService.startIfWanted(this);
         boolean connected = LinkService.config(this).dialOut;
         Intent i = getIntent();
+        if (kioskOn()) setImmersive(true);
         if (connected && !(i != null && (i.hasExtra("perms") || i.hasExtra("asks") || i.hasExtra("setup")))) web.loadUrl(dashboardUrl());
         else web.loadUrl(SETUP);
         handle(i);
@@ -84,9 +95,24 @@ public class MainActivity extends Activity {
         js("window.onPerms&&window.onPerms()");
     }
 
-    @Override public void onBackPressed() { if (web.canGoBack()) web.goBack(); else if (!url.startsWith(SETUP)) web.loadUrl(SETUP); else super.onBackPressed(); }
+    /** Back: the dashboard may use it first (talk mode's full-screen avatar leaves on Back, as in the app). */
+    @Override public void onBackPressed() {
+        try {
+            web.evaluateJavascript("(window.onAndroidBack&&window.onAndroidBack())?'1':'0'", new android.webkit.ValueCallback<String>() {
+                public void onReceiveValue(String v) { if (v == null || !v.contains("1")) back(); }
+            });
+        } catch (Throwable e) { back(); }
+    }
 
-    @Override protected void onResume() { super.onResume(); js("window.onResume&&window.onResume()"); }
+    private void back() {
+        if (web.canGoBack()) web.goBack(); else if (!url.startsWith(SETUP)) web.loadUrl(SETUP); else if (!kioskOn()) super.onBackPressed();
+    }
+
+    @Override protected void onResume() { super.onResume(); if (kioskOn()) applyKiosk(); js("window.onResume&&window.onResume()"); }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus && kioskOn()) setImmersive(true); }
+
+    @Override protected void onDestroy() { if (voice != null) voice.destroy(); super.onDestroy(); }
 
     void js(final String code) { runOnUiThread(new Runnable() { public void run() { try { web.evaluateJavascript(code, null); } catch (Throwable ignored) { } } }); }
 
@@ -103,7 +129,91 @@ public class MainActivity extends Activity {
     static String base(String server) { String b = server.trim(); while (b.endsWith("/")) b = b.substring(0, b.length() - 1); return b.matches("(?i)https?://.*") ? b : "http://" + b; }
     static String origin(String u) { return u.replaceFirst("^((?i)https?://[^/?#]+).*$", "$1").toLowerCase(); }
 
-    String dashboardUrl() { Link.Config k = LinkService.config(this); return base(k.server) + "/ui/#token=" + Uri.encode(k.token) + "&app=1"; }
+    String dashboardUrl() {
+        Link.Config k = LinkService.config(this);
+        boolean talk = LinkService.prefs(this).getBoolean("auto_talk", false);
+        return base(k.server) + "/ui/#token=" + Uri.encode(k.token) + "&app=1" + (talk ? "&talk=1" : "") + (kioskOn() ? "&kiosk=1" : "");
+    }
+
+    /** Is the page showing ours (the setup page) or the dashboard of the jade-py we are connected to? */
+    boolean trusted() {
+        String u = url;
+        if (u.startsWith("file:///android_asset/")) return true;
+        String server = LinkService.config(this).server;
+        return server.length() > 0 && origin(u).equals(origin(base(server)));
+    }
+
+    /** The app's bridge names, for talk mode and kiosk mode in the dashboard. */
+    final class Native {
+        @JavascriptInterface public boolean speak(String uid, String text, double pitch, double rate) { return trusted() && voice.speak(uid, text, pitch, rate); }
+        @JavascriptInterface public void stop() { voice.stopSpeaking(); }
+        @JavascriptInterface public boolean ttsAvailable() { return trusted() && voice.ttsReady; }
+        @JavascriptInterface public boolean sttAvailable() { return trusted() && voice.sttAvailable(); }
+        @JavascriptInterface public void sttStart(String lang, boolean partial, boolean offline) { if (trusted()) voice.sttStart(lang, partial, offline); }
+        @JavascriptInterface public void sttStop(boolean cancel) { voice.sttStop(cancel); }
+        @JavascriptInterface public void keepScreenOn(final boolean on) {
+            if (!trusted()) return;
+            runOnUiThread(new Runnable() { public void run() { if (on) getWindow().addFlags(0x80); else if (!kioskOn()) getWindow().clearFlags(0x80); } });
+        }
+        @JavascriptInterface public String kioskStatus() { return trusted() ? MainActivity.this.kioskStatus() : "{}"; }
+        @JavascriptInterface public void setKiosk(final boolean on) { if (trusted()) runOnUiThread(new Runnable() { public void run() { MainActivity.this.setKiosk(on); } }); }
+        @JavascriptInterface public void setup() { if (trusted()) runOnUiThread(new Runnable() { public void run() { web.loadUrl(SETUP); } }); }
+        @JavascriptInterface public boolean micAllowed() { return Perms.has(MainActivity.this, "android.permission.RECORD_AUDIO"); }
+    }
+
+    // ---------------------------------------------------------------- kiosk mode: Jade Link as the home screen, full screen, locked in front
+    static final String HOME_ALIAS = "app.netrunner.jade.Home";
+
+    boolean kioskOn() { try { return LinkService.prefs(this).getBoolean("kiosk", false); } catch (Exception e) { return false; } }
+
+    DevicePolicyManager dpm() { try { return (DevicePolicyManager) getSystemService("device_policy"); } catch (Exception e) { return null; } }
+
+    boolean isOwner() { DevicePolicyManager d = dpm(); try { return d != null && d.isDeviceOwnerApp(getPackageName()); } catch (Exception e) { return false; } }
+
+    int lockState() { try { return ((ActivityManager) getSystemService("activity")).getLockTaskModeState(); } catch (Exception e) { return 0; } }
+
+    void setKiosk(boolean on) {
+        LinkService.prefs(this).edit().putBoolean("kiosk", on).apply();
+        try { getPackageManager().setComponentEnabledSetting(new ComponentName(getPackageName(), HOME_ALIAS), on ? 1 : 2, 1); } catch (Exception ignored) { }
+        if (on) { applyKiosk(); return; }
+        if (isOwner()) { try { dpm().clearPackagePersistentPreferredActivities(new ComponentName(this, AdminReceiver.class), getPackageName()); } catch (Exception ignored) { } }
+        try { if (lockState() != 0) stopLockTask(); } catch (Exception ignored) { }
+        setImmersive(false);
+    }
+
+    /** Enter the kiosk: whitelist + permanent home as device owner, then lock task (screen pinning without it). */
+    void applyKiosk() {
+        if (!kioskOn()) return;
+        if (isOwner()) {
+            ComponentName admin = new ComponentName(this, AdminReceiver.class);
+            try { dpm().setLockTaskPackages(admin, new String[] { getPackageName() }); } catch (Exception ignored) { }
+            try {
+                IntentFilter f = new IntentFilter("android.intent.action.MAIN");
+                f.addCategory("android.intent.category.HOME"); f.addCategory("android.intent.category.DEFAULT");
+                dpm().addPersistentPreferredActivity(admin, f, new ComponentName(getPackageName(), HOME_ALIAS));
+            } catch (Exception ignored) { }
+            try { dpm().setKeyguardDisabled(admin, true); } catch (Exception ignored) { }
+        }
+        try { if (lockState() == 0) startLockTask(); } catch (Exception ignored) { }
+        setImmersive(true);
+    }
+
+    @SuppressWarnings("deprecation")
+    void setImmersive(boolean on) {
+        try {
+            Window w = getWindow();
+            if (on) { w.addFlags(0x80); w.getDecorView().setSystemUiVisibility(0x1000 | 0x4 | 0x2 | 0x100 | 0x200 | 0x400); }
+            else { w.clearFlags(0x80); w.getDecorView().setSystemUiVisibility(0); }
+        } catch (Exception ignored) { }
+    }
+
+    String kioskStatus() {
+        boolean home = false;
+        try { home = getPackageManager().getComponentEnabledSetting(new ComponentName(getPackageName(), HOME_ALIAS)) == 1; } catch (Exception ignored) { }
+        int st = lockState();
+        return "{\"on\":" + kioskOn() + ",\"home\":" + home + ",\"locked\":" + (st == 1) + ",\"pinned\":" + (st == 2) + ",\"owner\":" + isOwner()
+            + ",\"auto_talk\":" + LinkService.prefs(this).getBoolean("auto_talk", false) + "}";
+    }
 
     /** The setup page's bridge. Every method checks that the setup page (inside the app) is what is showing. */
     final class Bridge {
@@ -116,6 +226,7 @@ public class MainActivity extends Activity {
             m.put("server", k.server); m.put("token", k.token); m.put("name", k.name); m.put("dial_out", LinkService.prefs(MainActivity.this).getBoolean("dial_out", false));
             m.put("listen", k.listen); m.put("port", (double) k.port); m.put("listen_token", k.listenToken); m.put("lan", k.lan); m.put("device_id", k.deviceId);
             m.put("model", Build.MODEL); m.put("version", LinkService.version(MainActivity.this));
+            m.put("auto_talk", LinkService.prefs(MainActivity.this).getBoolean("auto_talk", false));
             return MiniJson.write(m);
         }
 
@@ -132,6 +243,7 @@ public class MainActivity extends Activity {
                 if (o.has("port")) e.putInt("port", Math.max(1024, Math.min(65535, o.optInt("port", 8765))));
                 if (o.has("listen_token") && o.optString("listen_token", "").length() >= 12) e.putString("listen_token", o.optString("listen_token"));
                 if (o.has("lan")) e.putBoolean("lan", o.optBoolean("lan", true));
+                if (o.has("auto_talk")) e.putBoolean("auto_talk", o.optBoolean("auto_talk", false));
                 e.commit();
                 LinkService.startIfWanted(MainActivity.this);
                 Link l = LinkService.link; if (l != null && LinkService.wanted(MainActivity.this)) l.apply(LinkService.config(MainActivity.this));
@@ -161,6 +273,8 @@ public class MainActivity extends Activity {
             m.put("asks", MiniJson.parse(Asker.list()));
             m.put("battery_optimized", batteryOptimized());
             m.put("can_write_settings", Build.VERSION.SDK_INT < 23 || Settings.System.canWrite(MainActivity.this));
+            try { m.put("kiosk", MiniJson.parse(kioskStatus())); } catch (Throwable ignored) { }
+            m.put("voice", voice != null && voice.ttsReady); m.put("speech_recognizer", voice != null && voice.sttAvailable());
             return MiniJson.write(m);
         }
 

@@ -14,6 +14,7 @@
 <body>
 <div id="app">
   <header class="top">
+    <button class="btn btn-ghost icon" id="drawerBtn" aria-label="Chats and status" title="Chats and status"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
     <a class="brand" href="#/" aria-label="Jade home"><span class="pi-mark">J</span><span class="logo" data-text="JADE">JADE</span></a>
     <span class="chip hide-sm" id="modelChip" title="The model"><span class="dot" id="statusDot"></span><span id="modelName">…</span></span>
     <span class="grow"></span>
@@ -25,12 +26,12 @@
     <a href="#/" data-r="home"><i>◆</i><span>Home</span></a>
     <a href="#/chat" data-r="chat"><i>▸</i><span>Chat</span></a>
     <a href="#/vault" data-r="vault"><i>▤</i><span>Vault</span></a>
-    <a href="#/flows" data-r="flows"><i>⇉</i><span>Flows</span></a>
-    <a href="#/schedules" data-r="schedules"><i>◷</i><span>Schedules</span></a>
+    <a href="#/flows" data-r="flows" class="more"><i>⇉</i><span>Flows</span></a>
+    <a href="#/schedules" data-r="schedules" class="more"><i>◷</i><span>Schedules</span></a>
     <a href="#/sentry" data-r="sentry"><i>◉</i><span>Sentry</span></a>
     <a href="#/phones" data-r="phones"><i>▯</i><span>Phones</span></a>
-    <a href="#/logs" data-r="logs"><i>≡</i><span>Logs</span></a>
-    <a href="#/settings" data-r="settings"><i>⚙</i><span>Settings</span></a>
+    <a href="#/logs" data-r="logs" class="more"><i>≡</i><span>Logs</span></a>
+    <a href="#/settings" data-r="settings" class="more"><i>⚙</i><span>Settings</span></a>
   </nav>
   <main id="view" tabindex="-1"></main>
 </div>

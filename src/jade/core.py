@@ -38,8 +38,8 @@ def tool_specs() -> dict[str, dict]:
 class Jade:
     def __init__(self, vault: str | os.PathLike | None = None, settings: Settings | None = None, *, provider: Provider | None = None,
                  seed: bool = True, config: str | os.PathLike | None = None, **overrides: Any):
-        from .settings import CONFIG_PATH
-        self.config_path = Path(config) if config else CONFIG_PATH
+        from .settings import config_path
+        self.config_path = Path(config) if config else config_path()
         if settings is None:
             settings = Settings.load(config, **overrides)
         elif overrides:
