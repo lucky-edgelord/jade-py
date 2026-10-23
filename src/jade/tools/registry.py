@@ -54,6 +54,7 @@ class Tool:
     hints: str = ""                # extra words the tool router matches on
     enabled: Callable[["Jade"], bool] | None = None
     summary: str = ""              # one line for the system prompt's tool list
+    hidden: bool = False           # callable (scripts, flows, codemode) but never offered to the model
 
     def describe(self, jade: "Jade") -> str:
         return self.description(jade) if callable(self.description) else self.description
@@ -91,7 +92,7 @@ class Registry:
         return list(self.tools)
 
     def active(self, jade: "Jade") -> list[Tool]:
-        return [t for t in self.tools.values() if not t.enabled or t.enabled(jade)]
+        return [t for t in self.tools.values() if not t.hidden and (not t.enabled or t.enabled(jade))]
 
     def copy(self) -> "Registry":
         r = Registry()

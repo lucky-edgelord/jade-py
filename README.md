@@ -122,6 +122,15 @@ episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and rea
 returning one short report), and **decide** (the local Ollaya decision model: calibrated probabilities for triage,
 scores and yes/no; set `ollaya_host` and `ollaya_model`).
 
+**MCP** servers go in `/Jade/mcp.json` (the app's format: `url` + `headers`, or here also `command` + `args` for
+a local server). Each tool is `mcp__<server>__<tool>`, exposed `direct` (always offered), `deferred` (loaded by the
+tool router when needed), `codemode` (the default: called from JavaScript with `await tools.mcp__s__t(args)` in the
+codemode tool) or `hidden`. Headers may use `${SECRET}` or `!command`. The `mcp` tool lists, adds and removes servers.
+
+**SSH** (`ssh_hosts` in the config: name, host, port, user, and a password, `key`, `key_file`, or nothing for the
+SSH agent): interactive sessions, one-shot commands and file transfer. Passwords and keys never reach the model,
+host keys are pinned on first use, and each command asks first unless the host has `confirm = false`.
+
 Long chats are kept inside `num_ctx`: old tool outputs are shortened first, then the oldest part of the chat is
 summarised.
 
@@ -144,8 +153,8 @@ WEATHER_KEY = "…"
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
-history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate and decide. Coming next:
-MCP, SSH, a headless browser (with playbook browser steps), Vector and Discord.
+history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP and SSH.
+Coming next: a headless browser (with playbook browser steps), Vector and Discord.
 
 ## Tests
 

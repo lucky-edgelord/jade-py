@@ -62,6 +62,8 @@ class Jade:
         self.notifiers: list[Callable[[str, str], Any]] = []   # notify(title, body) goes to each (the API streams them; the CLI prints)
         self.daemon_loops: list = []                           # extra background loops parts add (curiosity, backups…)
         self.daemon_running = False
+        self.prepare_hooks: list = []                          # async callables run before each model call and tool run (MCP connects here)
+        self.close_hooks: list = []                            # async callables run by aclose()
         self.background = asyncio.Lock()                       # background turns (schedules, heartbeat) run one at a time
         self.state = self._load_state()
         self._extensions_loaded = False
@@ -106,6 +108,8 @@ class Jade:
 
     async def run_tool(self, name: str, args: dict | None = None, session: Session | None = None) -> str:
         from .tools.registry import ToolContext
+        if name.startswith("mcp__") or name not in self.tools:
+            await self.prepare()
         r = await self.tools.call(name, args or {}, ToolContext(self, session))
         if r.error:
             raise RuntimeError(r.output.removeprefix("Error: "))
@@ -183,7 +187,20 @@ class Jade:
         if j is not None:
             j.later(s, msgs)
 
+    async def prepare(self) -> None:
+        for h in list(self.prepare_hooks):
+            try:
+                await h()
+            except Exception as e:
+                import logging
+                logging.getLogger("jade").warning("prepare: %s", e)
+
     async def aclose(self) -> None:
+        for h in list(self.close_hooks):
+            try:
+                await h()
+            except Exception:
+                pass
         if getattr(self, "flows", None):
             await self.flows.aclose()
         await self.provider.aclose()

@@ -199,6 +199,7 @@ class Stepper:
         s, jade = self.s, self.jade
         self.steps += 1
         query = next((m.get("display") or m["content"] for m in reversed(s.messages) if m["role"] == "user"), "")
+        await jade.prepare()
         tools = jade.router.select(s, query)
         system = P.build(jade, s, tools, query)
         compacted = False

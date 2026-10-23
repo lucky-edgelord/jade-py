@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- MCP: the app's /Jade/mcp.json (streamable HTTP, plus local stdio servers), exposures (direct, deferred, codemode, hidden), the codemode JavaScript tool, resources, and an mcp tool to manage servers.
+- SSH: saved hosts, interactive sessions (send keys, read until a pattern), one-shot commands, SFTP put/get, host keys pinned on first use, approval before each command.
+- Tools can be hidden (callable from scripts and codemode, never offered to the model); Jade.prepare_hooks and close_hooks.
+
 ## 0.4.0
 
 - think: the app's tree-of-thoughts engine (beam, best-first and PUCT search, tiered verifiers with vetoes, hard budgets, GAE logging to /Jade/Tot), with code checks run by Node in a read-only sandbox.

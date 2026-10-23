@@ -115,6 +115,7 @@ class Settings(BaseSettings):
 
     timezone: str = Field(default="", description="IANA name; default: the system's")
     secrets: dict[str, str] = Field(default_factory=dict, description="named secrets for http_request ({{NAME}}) and scripts (env)")
+    ssh_hosts: list[dict] = Field(default_factory=list, description="machines for the ssh tool: {name, host, port, user, password | key | key_file | (agent), confirm}")
 
     # ------------------------------------------------------------------
     @classmethod
