@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .core import Jade
 
 log = logging.getLogger("jade")
-PARTS: list[str] = ["embeddings", "journal", "scheduler", "playbook", "flows", "curiosity", "backup", "reasoning", "mcpx", "ssh", "browser", "vector", "discord_bridge"]
+PARTS: list[str] = ["embeddings", "journal", "scheduler", "playbook", "flows", "curiosity", "backup", "reasoning", "mcpx", "ssh", "browser", "vector", "discord_bridge", "phonelink", "phone", "sentry"]
 
 
 def load(jade: "Jade") -> None:

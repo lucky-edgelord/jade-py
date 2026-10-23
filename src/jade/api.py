@@ -37,13 +37,45 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
 
     listeners: set[asyncio.Queue] = set()
 
-    def on_notify(title: str, body: str) -> None:
+    def broadcast(event: str, data: dict) -> None:
         for q in list(listeners):
-            q.put_nowait({"title": title, "body": body, "ts": time.time()})
+            q.put_nowait({"event": event, "data": data})
+
+    def on_notify(title: str, body: str) -> None:
+        broadcast("notify", {"title": title, "body": body, "ts": time.time()})
+
+    # ---- approvals: a tool call that needs the user's yes goes to the dashboard (if one is open), else to the phone
+    approvals: dict[str, dict] = {}
+
+    async def approver(call, tool) -> bool:
+        aid = secrets.token_hex(6)
+        args = {k: (v[:500] + "…" if isinstance(v, str) and len(v) > 500 else v) for k, v in (call.arguments or {}).items()}
+        item = {"id": aid, "tool": call.name, "arguments": args, "created": time.time(), "risky": bool(tool and tool.risky)}
+        if listeners:
+            fut = asyncio.get_running_loop().create_future()
+            approvals[aid] = {**item, "future": fut}
+            broadcast("approval", item)
+            try:
+                return bool(await asyncio.wait_for(fut, 600))
+            except asyncio.TimeoutError:
+                return False
+            finally:
+                approvals.pop(aid, None)
+                broadcast("approval_done", {"id": aid})
+        links = getattr(jade, "phones", None)
+        if links and any(p.online for p in links.phones.values()):
+            try:
+                return await links.ask(f"Jade wants to use {call.name}", json.dumps(args, ensure_ascii=False, indent=1)[:900])
+            except Exception:  # noqa: BLE001
+                return False
+        return False
 
     @asynccontextmanager
     async def lifespan(_app):
         jade.notifiers.append(on_notify)
+        own_approver = jade.approver is None
+        if own_approver:
+            jade.approver = approver
         task = None
         if daemon:
             from .scheduler import Daemon
@@ -57,6 +89,8 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
                 task.cancel()
             if on_notify in jade.notifiers:
                 jade.notifiers.remove(on_notify)
+            if own_approver and jade.approver is approver:
+                jade.approver = None
 
     app = FastAPI(title="Jade", version=__version__, description="Jade, the agent from Jade Vault, over HTTP", lifespan=lifespan)
     st = jade.settings
@@ -186,7 +220,7 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
         except (KeyError, ValueError):
             return err(404, "unknown_session", f"no chat with id {sid}. List them with /v1/chats")
         msgs = [{"role": m["role"], "content": clean_reply(m.get("display") or m.get("content")), "ts": m.get("ts")} for m in s.messages
-                if m.get("role") in ("user", "assistant") and clean_reply(m.get("display") or m.get("content"))][-max(1, min(200, limit)):]
+                if m.get("role") in ("user", "assistant") and not m.get("auto") and clean_reply(m.get("display") or m.get("content"))][-max(1, min(200, limit)):]
         return {"ok": True, "api": API, "session": info(s), "messages": msgs}
 
     @app.get("/v1/chats/{sid}", dependencies=[Depends(auth)])
@@ -268,14 +302,21 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
 
     @app.get("/v1/events", dependencies=[Depends(auth)])
     async def events_stream():
-        """Notifications (schedules, the heartbeat…) as Server-Sent Events."""
+        """Server-Sent Events: notify (schedules, the heartbeat…), approval / approval_done (a tool call waiting for a yes), sentry, phone."""
         q: asyncio.Queue = asyncio.Queue()
         listeners.add(q)
 
         async def gen():
             try:
+                for a in approvals.values():   # ones already waiting
+                    yield {"event": "approval", "data": json.dumps({k: v for k, v in a.items() if k != "future"}, ensure_ascii=False)}
                 while True:
-                    yield {"event": "notify", "data": json.dumps(await q.get(), ensure_ascii=False)}
+                    try:
+                        m = await asyncio.wait_for(q.get(), 20)
+                    except asyncio.TimeoutError:
+                        yield {"event": "ping", "data": "{}"}
+                        continue
+                    yield {"event": m["event"], "data": json.dumps(m["data"], ensure_ascii=False, default=str)}
             finally:
                 listeners.discard(q)
         return EventSourceResponse(gen())
@@ -313,6 +354,80 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
     async def flow_stop(run_id: str):
         F = getattr(jade, "flows", None)
         return {"ok": bool(F and F.stop(run_id)), "api": API}
+
+    @app.get("/v1/approvals", dependencies=[Depends(auth)])
+    async def approvals_list():
+        return {"ok": True, "api": API, "approvals": [{k: v for k, v in a.items() if k != "future"} for a in approvals.values()]}
+
+    @app.post("/v1/approvals/{aid}", dependencies=[Depends(auth)])
+    async def approvals_answer(aid: str, body: dict | None = None):
+        a = approvals.get(aid)
+        if not a:
+            return err(404, "unknown_approval", "nothing is waiting with that id (it may have timed out)")
+        if not a["future"].done():
+            a["future"].set_result(bool((body or {}).get("allow")))
+        return {"ok": True, "api": API}
+
+    # ---- phones (Jade Link)
+    def links():
+        L = getattr(jade, "phones", None)
+        if L is None:
+            raise HTTPException(404, {"ok": False, "api": API, "error": {"code": "no_phones", "message": "phone support is not available"}})
+        return L
+
+    def link_on():
+        if not st.link_on:
+            raise HTTPException(403, {"ok": False, "api": API, "error": {"code": "link_off", "message": "this jade-py does not accept phones (link_on = false)"}})
+
+    @app.post("/v1/link/poll", dependencies=[Depends(auth), Depends(link_on)])
+    async def link_poll(body: dict):
+        dev = body.get("device") if isinstance(body.get("device"), dict) else None
+        if not dev or not dev.get("id"):
+            return err(400, "missing_device", "send device: {id, name, model, …}")
+        L = links()
+        known = L.find_device(str(dev["id"]))
+        if not known or not known.online:
+            broadcast("phone", {"name": dev.get("name") or dev.get("model"), "online": True})
+        reqs = await L.poll(dev, float(body.get("wait") or 25))
+        p = L.find_device(str(dev["id"]))
+        return {"ok": True, "api": API, "name": p.name if p else None, "requests": reqs}
+
+    @app.post("/v1/link/result", dependencies=[Depends(auth), Depends(link_on)])
+    async def link_result(body: dict):
+        ok = await links().result(str(body.get("device_id") or ""), str(body.get("id") or ""), body.get("result"))
+        return {"ok": True, "api": API, "delivered": ok}
+
+    @app.post("/v1/link/events", dependencies=[Depends(auth), Depends(link_on)])
+    async def link_events(body: dict):
+        evs = [e for e in body.get("events") or [] if isinstance(e, dict)][:100]
+        n = await links().events(str(body.get("device_id") or ""), evs)
+        for e in evs:
+            if e.get("type") == "sentry_fire":
+                broadcast("sentry", {"phone": body.get("device_id"), **{k: v for k, v in (e.get("data") or {}).items() if k != "snapshot_b64"}})
+        return {"ok": True, "api": API, "accepted": n}
+
+    @app.get("/v1/phones", dependencies=[Depends(auth)])
+    async def phones_list():
+        L = links()
+        L.sync_direct()
+        return {"ok": True, "api": API, "phones": L.list(), "default": st.phone_default or None, "link_on": st.link_on}
+
+    @app.post("/v1/phones/{name}/call", dependencies=[Depends(auth)])
+    async def phone_call(name: str, body: dict):
+        from .tools.registry import ToolError
+        try:
+            r = await links().get(name).call(str(body.get("op") or "info"), body.get("args") or {})
+        except ToolError as e:
+            return err(502, "phone_error", str(e))
+        return {"ok": True, "api": API, "result": r}
+
+    @app.get("/v1/sentry", dependencies=[Depends(auth)])
+    async def sentry_status():
+        S = getattr(jade, "sentry", None)
+        if not S:
+            return err(404, "no_sentry", "Sentry is not available")
+        await S.watch()
+        return {"ok": True, "api": API, **(await S.listing()), "log": S.log[:50], "rules": S.cfg()}
 
     @app.get("/health")
     async def health():

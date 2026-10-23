@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Jade Link</string>
+  <string name="a11y_desc">Lets Jade (your jade-py) read what is on the screen and tap, type and scroll in your apps, when you ask her to. It stays off until you turn it on here, and a notice shows whenever Jade is using it.</string>
+</resources>

@@ -23,6 +23,14 @@ class ToolContext:
     session: "Session | None" = None
     call_id: str = ""
     emit: Callable[[str], None] | None = None   # progress lines (shown live in the REPL)
+    images: list = field(default_factory=list)  # pictures for the model (base64 JPEG/PNG, label), shown after the tool calls
+
+    def show_image(self, b64: str, label: str = "") -> bool:
+        """Hand the model a picture: it arrives in a message right after this round of tool calls (if settings.look_images)."""
+        if not self.jade.settings.look_images or self.session is None:
+            return False
+        self.images.append((b64, label))
+        return True
 
     @property
     def vault(self):

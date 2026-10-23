@@ -151,6 +151,21 @@ class Settings(BaseSettings):
     discord: BridgeSettings = Field(default_factory=lambda: BridgeSettings(poll=3))
     ssh_hosts: list[dict] = Field(default_factory=list, description="machines for the ssh tool: {name, host, port, user, password | key | key_file | (agent), confirm}")
 
+    # phones (the Jade Link app): they dial in to `jade serve` with the API token, or listen and are listed here
+    phones: list[dict] = Field(default_factory=list, description='phones that listen: {name, url ("http://192.168.1.20:8765"), token}')
+    link_on: bool = Field(default=True, description="let Jade Link phones dial in to `jade serve` (they sign in with api_token)")
+    phone_default: str = ""
+    phone_confirm: Literal["phone", "jade", "off"] = Field(default="phone", description="who approves calls and texts: the person on the phone, jade's approver (dashboard, REPL), or nobody")
+    sentry_allow: list[str] = Field(default_factory=list, description="numbers Sentry-run flows may text or call without asking (Jade cannot change this list)")
+    sentry_limit: int = Field(default=6, description="texts and calls Sentry flows may make per hour")
+    sentry_phone: str = Field(default="", description="the phone Sentry runs on (default: phone_default, else every linked phone)")
+    look_images: bool = Field(default=True, description="show pictures (camera, screenshots, look) to the model; off for models without vision")
+
+    @field_validator("sentry_allow", mode="before")
+    @classmethod
+    def _split_numbers(cls, v):
+        return [x for x in re.split(r"[\n,;]+", v) if x.strip()] if isinstance(v, str) else v
+
     # ------------------------------------------------------------------
     @classmethod
     def load(cls, path: Path | str | None = None, **overrides: Any) -> "Settings":

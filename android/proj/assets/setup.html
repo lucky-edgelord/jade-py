@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jade Link</title>
+<style>
+  :root { --bg:#040807; --bg2:#0a1612; --bg3:#10231b; --bd:#1d3b30; --fg:#e8fff4; --dim:#8fb5a5; --jade:#1fe5a5; --jade2:#13b07e; --warn:#ffcf5c; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { padding: 16px 16px 40px; padding-top: max(16px, env(safe-area-inset-top)); max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 4px 0 2px; letter-spacing: .3px; display: flex; align-items: center; gap: 10px; }
+  h1 .gem { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--jade), #0b6b4c); box-shadow: 0 0 18px rgba(31,229,165,.35); }
+  .sub { color: var(--dim); margin: 0 0 16px; font-size: 13px; }
+  section { background: var(--bg2); border: 1px solid var(--bd); border-radius: 14px; padding: 14px; margin: 12px 0; }
+  section h2 { font-size: 15px; margin: 0 0 4px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  section p.help { color: var(--dim); font-size: 13px; margin: 0 0 10px; }
+  label.f { display: block; font-size: 12px; color: var(--dim); margin: 10px 0 4px; }
+  input[type=text], input[type=url], input[type=password], input[type=number] { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--bd); background: var(--bg); color: var(--fg); font: inherit; }
+  input:focus { outline: 2px solid var(--jade2); outline-offset: 0; border-color: transparent; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button { appearance: none; border: 1px solid var(--jade2); background: var(--jade); color: #02140d; font: 600 14px system-ui, sans-serif; padding: 9px 14px; border-radius: 10px; }
+  button.ghost { background: transparent; color: var(--jade); }
+  button.small { padding: 6px 10px; font-size: 13px; }
+  button:active { transform: translateY(1px); }
+  .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--bd); color: var(--dim); white-space: nowrap; }
+  .pill.ok { color: var(--jade); border-color: var(--jade2); }
+  .pill.warn { color: var(--warn); border-color: #7a6526; }
+  .pill.bad { color: var(--bad); border-color: #7a2f2f; }
+  .switch { position: relative; width: 46px; height: 26px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--bg3); border: 1px solid var(--bd); border-radius: 99px; transition: .15s; }
+  .switch span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--dim); transition: .15s; }
+  .switch input:checked + span { background: rgba(31,229,165,.2); border-color: var(--jade2); }
+  .switch input:checked + span::after { left: 23px; background: var(--jade); }
+  .item { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--bd); }
+  .item:first-of-type { border-top: 0; }
+  .item .t { font-size: 14px; } .item .d { font-size: 12px; color: var(--dim); }
+  code, .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  pre { background: var(--bg); border: 1px solid var(--bd); border-radius: 10px; padding: 10px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
+  .ask { border: 1px solid var(--jade2); background: rgba(31,229,165,.06); border-radius: 12px; padding: 12px; margin-top: 8px; }
+  .ask .t { font-weight: 700; } .ask .d { white-space: pre-wrap; color: var(--fg); opacity: .9; margin: 6px 0 10px; font-size: 14px; }
+  .msg { font-size: 13px; margin-top: 8px; min-height: 1em; }
+  .msg.ok { color: var(--jade); } .msg.bad { color: var(--bad); }
+  footer { color: var(--dim); font-size: 12px; text-align: center; margin-top: 18px; }
+  #asksBox:empty { display: none; }
+</style>
+</head>
+<body>
+<h1><span class="gem" aria-hidden="true"></span>Jade Link</h1>
+<p class="sub">Lets your Jade (jade-py) use this phone: calls and texts, the screen, the camera and sensors, and Sentry.</p>
+
+<section id="asksBox" aria-live="polite"></section>
+
+<section>
+  <h2>Connect to jade-py <span id="dialPill" class="pill">off</span></h2>
+  <p class="help">The phone keeps a connection open to your <code>jade serve</code>. Works on Wi-Fi and mobile data, as long as the phone can reach it (same network, or a VPN such as Tailscale).</p>
+  <label class="f" for="server">jade-py address</label>
+  <input id="server" type="url" inputmode="url" placeholder="http://192.168.1.10:8760" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label class="f" for="token">API token (api_token in jade-py's config)</label>
+  <input id="token" type="password" placeholder="jv_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <label class="f" for="name">This phone's name</label>
+  <input id="name" type="text" placeholder="pixel" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <div class="row">
+    <label class="switch" title="Connect"><input id="dialOut" type="checkbox"><span></span></label><span>Connect</span>
+    <span style="flex:1"></span>
+    <button class="ghost small" id="testBtn">Test</button>
+    <button class="small" id="dashBtn">Open dashboard</button>
+  </div>
+  <div id="dialMsg" class="msg" role="status"></div>
+</section>
+
+<section>
+  <h2>Let jade-py connect to this phone <span id="listenPill" class="pill">off</span></h2>
+  <p class="help">Or the other way round: Jade Link listens, and jade-py calls in. Use it on your own network or over a VPN; it is plain HTTP.</p>
+  <div class="row" style="margin-top:0">
+    <label class="switch" title="Listen"><input id="listen" type="checkbox"><span></span></label><span>Listen</span>
+    <span style="flex:1"></span>
+    <label for="port" class="d" style="color:var(--dim);font-size:12px">Port</label>
+    <input id="port" type="number" min="1024" max="65535" style="width:96px">
+  </div>
+  <div class="row">
+    <label class="switch" title="Whole network"><input id="lan" type="checkbox"><span></span></label><span>Reachable from the network <span class="d" style="color:var(--dim);font-size:12px">(off: this phone only)</span></span>
+  </div>
+  <label class="f">Add this to jade-py's config (~/.config/jade/config.toml)</label>
+  <pre id="snippet" class="mono"></pre>
+  <div class="row"><button class="ghost small" id="copyBtn">Copy</button><button class="ghost small" id="newTokBtn">New token</button></div>
+</section>
+
+<section>
+  <h2>What Jade may use</h2>
+  <p class="help">Each needs your yes once. Calls and texts still ask you here first (unless jade-py is set otherwise).</p>
+  <div id="access"></div>
+</section>
+
+<footer id="foot"></footer>
+
+<script>
+const $ = id => document.getElementById(id);
+const L = window.JadeLink;
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+let cfg = {}, st = {}, dirty = false;
+
+function load() {
+  try { cfg = JSON.parse(L.config()); } catch { cfg = {}; }
+  $('server').value = cfg.server || ''; $('token').value = cfg.token || ''; $('name').value = cfg.name || '';
+  $('dialOut').checked = !!cfg.dial_out; $('listen').checked = !!cfg.listen; $('port').value = cfg.port || 8765; $('lan').checked = cfg.lan !== false;
+  $('foot').textContent = `Jade Link ${cfg.version || ''} · ${cfg.model || ''} · device ${cfg.device_id || ''}`;
+  snippet();
+}
+
+function save(extra = {}) {
+  const o = { server: $('server').value.trim(), token: $('token').value.trim(), name: $('name').value.trim(), dial_out: $('dialOut').checked,
+              listen: $('listen').checked, port: +$('port').value || 8765, lan: $('lan').checked, ...extra };
+  const r = JSON.parse(L.save(JSON.stringify(o)));
+  if (r.error) msg('dialMsg', r.error, false);
+  cfg = { ...cfg, ...o }; dirty = false; snippet(); refresh();
+}
+
+function snippet() {
+  const name = ($('name').value.trim() || cfg.model || 'phone').toLowerCase().replace(/[^\w.-]+/g, '-');
+  const ip = (st.ips || []).find(a => !a.startsWith('127.')) || '<phone-ip>';
+  $('snippet').textContent = `[[phones]]\nname = "${name}"\nurl = "http://${ip}:${$('port').value || 8765}"\ntoken = "${cfg.listen_token || ''}"`;
+}
+
+function msg(id, text, ok) { const e = $(id); e.textContent = text; e.className = 'msg ' + (ok === true ? 'ok' : ok === false ? 'bad' : ''); }
+
+function pill(id, text, kind) { const e = $(id); e.textContent = text; e.className = 'pill ' + (kind || ''); }
+
+function refresh() {
+  try { st = JSON.parse(L.status()); } catch { return; }
+  const d = st.link?.dial_out || {}, l = st.link?.listen || {};
+  if (!cfg.dial_out) pill('dialPill', 'off'); else if (d.connected) pill('dialPill', 'connected' + (d.name ? ' as ' + d.name : ''), 'ok'); else pill('dialPill', d.error ? 'not connected' : 'connecting…', d.error ? 'bad' : 'warn');
+  if (cfg.dial_out && !d.connected && d.error) msg('dialMsg', d.error, false); else if (cfg.dial_out && d.connected) msg('dialMsg', `Jade has asked ${d.answered || 0} thing${d.answered === 1 ? '' : 's'} since it connected.`, true);
+  if (!cfg.listen) pill('listenPill', 'off'); else if (l.listening) pill('listenPill', 'listening on ' + (l.port || cfg.port), 'ok'); else pill('listenPill', l.error ? 'cannot listen' : 'starting…', l.error ? 'bad' : 'warn');
+  snippet();
+  asks(st.asks || []);
+  access(st.info || {});
+}
+
+function asks(list) {
+  const box = $('asksBox');
+  if (!list.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<h2>Jade is asking</h2>' + list.map(a => `<div class="ask"><div class="t">${esc(a.title)}</div><div class="d">${esc(a.detail)}</div>
+    <div class="row" style="margin:0"><button class="ghost" data-no="${esc(a.id)}">Don't</button><button data-yes="${esc(a.id)}">Allow</button></div></div>`).join('');
+}
+
+function access(info) {
+  const p = info.permissions || {};
+  const perm = (...k) => k.every(x => p['android.permission.' + x] !== false);
+  const rows = [
+    ['Calls, texts and contacts', 'place calls, send and read texts, look up contacts', perm('CALL_PHONE', 'SEND_SMS', 'READ_SMS', 'READ_CONTACTS', 'READ_PHONE_STATE'), 'perms:phone'],
+    ['Camera, microphone, location', 'photos, recordings, where the phone is', perm('CAMERA', 'RECORD_AUDIO', 'ACCESS_FINE_LOCATION'), 'perms:senses'],
+    ['Notifications', 'so Jade Link can show Jade\'s questions', perm('POST_NOTIFICATIONS'), 'perms:notify'],
+    ['Screen control', 'read and tap in other apps (Accessibility → Jade Link)', !!info.screen_control, 'accessibility'],
+    ['Notification access', 'Sentry rules that react to other apps\' notifications', !!info.notification_access, 'notifications'],
+    ['Open apps from the background', 'alarms, calls, links: "Display over other apps"', !!info.can_open_apps, 'overlay'],
+    ['Change brightness', '"Modify system settings"', !!st.can_write_settings, 'write_settings'],
+    ['Stay connected', 'battery optimisation off, so Android does not cut the link', !st.battery_optimized, 'battery'],
+  ];
+  $('access').innerHTML = rows.map(([t, d, ok, act]) => `<div class="item"><div><div class="t">${esc(t)}</div><div class="d">${esc(d)}</div></div>
+    ${ok ? '<span class="pill ok">on</span>' : `<button class="small ghost" data-act="${act}">Allow</button>`}</div>`).join('');
+}
+
+const PERMS = {
+  phone: ['CALL_PHONE', 'ANSWER_PHONE_CALLS', 'READ_PHONE_STATE', 'READ_CALL_LOG', 'SEND_SMS', 'READ_SMS', 'RECEIVE_SMS', 'READ_CONTACTS', 'BLUETOOTH_CONNECT', 'BLUETOOTH_SCAN'],
+  senses: ['CAMERA', 'RECORD_AUDIO', 'ACCESS_FINE_LOCATION', 'ACCESS_COARSE_LOCATION', 'ACTIVITY_RECOGNITION'],
+  notify: ['POST_NOTIFICATIONS'],
+};
+
+document.addEventListener('click', e => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.dataset.yes) { L.answer(t.dataset.yes, true); setTimeout(refresh, 150); return; }
+  if (t.dataset.no) { L.answer(t.dataset.no, false); setTimeout(refresh, 150); return; }
+  const act = t.dataset.act;
+  if (act) { if (act.startsWith('perms:')) L.requestPerms(PERMS[act.slice(6)].map(x => 'android.permission.' + x).join(',')); else L.open(act); return; }
+  if (t.id === 'testBtn') { msg('dialMsg', 'Checking…'); L.test($('server').value.trim(), $('token').value.trim()); }
+  if (t.id === 'dashBtn') { if (dirty) save(); if (!$('server').value.trim()) return msg('dialMsg', 'Enter jade-py\'s address first.', false); L.dashboard(); }
+  if (t.id === 'copyBtn') { navigator.clipboard?.writeText($('snippet').textContent).then(() => { t.textContent = 'Copied'; setTimeout(() => t.textContent = 'Copy', 1500); }).catch(() => {}); }
+  if (t.id === 'newTokBtn') { cfg.listen_token = L.newListenToken(); snippet(); }
+});
+for (const id of ['dialOut', 'listen', 'lan']) $(id).addEventListener('change', () => save());
+for (const id of ['server', 'token', 'name', 'port']) { $(id).addEventListener('input', () => { dirty = true; if (id === 'name' || id === 'port') snippet(); }); $(id).addEventListener('change', () => save()); }
+
+window.onTest = r => msg('dialMsg', r.ok ? `jade-py ${r.status?.version || ''} answers (model ${r.status?.model || '?'}).` : r.error, !!r.ok);
+window.onPerms = () => refresh();
+window.onResume = () => refresh();
+if (L) { load(); refresh(); setInterval(() => { if (!document.hidden) refresh(); }, 2000); }
+else document.body.insertAdjacentHTML('beforeend', '<p class="msg bad">This page only works inside the Jade Link app.</p>');
+</script>
+</body>
+</html>
