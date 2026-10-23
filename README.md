@@ -116,6 +116,12 @@ as `{{NAME}}` from `secrets` in the config), notes_search, note_links, memory, s
 (the tool router sends optional tools only when a chat needs them, and keeps them once used so the model's prompt
 cache keeps working).
 
+Reasoning: **think** (a tree of thoughts where every line is checked by something that can say no: JavaScript run
+in a read-only sandbox, a shell command, a file check, a rubric or a judge; the best verified line wins; trees and
+episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and read-only tools unless `write: true`,
+returning one short report), and **decide** (the local Ollaya decision model: calibrated probabilities for triage,
+scores and yes/no; set `ollaya_host` and `ollaya_model`).
+
 Long chats are kept inside `num_ctx`: old tool outputs are shortened first, then the oldest part of the chat is
 summarised.
 
@@ -138,8 +144,8 @@ WEATHER_KEY = "…"
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
-history, schedules, the heartbeat, playbooks, flows, curiosity and backups. Coming next: think (tree of thoughts),
-delegate, decide (Ollaya), then MCP, SSH, a headless browser (with playbook browser steps), Vector and Discord.
+history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate and decide. Coming next:
+MCP, SSH, a headless browser (with playbook browser steps), Vector and Discord.
 
 ## Tests
 

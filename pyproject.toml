@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jade-vault"
-version = "0.3.0"
+version = "0.4.0"
 description = "Jade, the agent from Jade Vault, in Python: use her as a library, a REPL, an HTTP API, or step by step"
 readme = "README.md"
 license = { text = "MIT" }

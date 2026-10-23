@@ -34,6 +34,10 @@ RISKY = {"ssh", "bash", "write", "edit", "web_fetch", "backup", "schedule", "flo
 LIMITS = {"tasks": 1000, "seconds": 300, "max_seconds": 900, "depth": 4, "loop": 200, "task_timeout": 10, "include": 3}
 
 
+def _squash(s) -> str:
+    return re.sub(r"\s+", " ", s)
+
+
 class _Undef:
     def __repr__(self):
         return "UNDEF"
@@ -1195,7 +1199,7 @@ class Playbooks:
                     value = json.loads(text[i:])
                 except ValueError as e:
                     raise PBError(f"{m['name']} did not return JSON ({e})") from None
-            return {"value": value, "note": f"{m['name']}{'.' + m['action'] if m.get('action') else ''}: {re.sub(r'\s+', ' ', redact(text, secrets))[:100]}"}
+            return {"value": value, "note": f"{m['name']}{'.' + m['action'] if m.get('action') else ''}: {_squash(redact(text, secrets))[:100]}"}
 
         async def control(name, t, a, T):
             nonlocal n_tasks

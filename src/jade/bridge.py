@@ -84,7 +84,8 @@ async def jade_bridge(jade: "Jade", op: str, a: dict, *, depth: int = 0, via: st
     if op == "list":
         return [{"name": t.name, "description": t.describe(jade)[:240]} for t in jade.tools.active(jade)]
     if op == "decide":
-        return await jade.run_tool("decide", a)
+        from .reasoning import decide_data
+        return await decide_data(jade, a.get("state"), a.get("question") or "", a.get("type") or "choice", a.get("options"))
     if op == "ask":
         return await ask_once(jade, a.get("prompt") or "", a.get("system") or "", bool(a.get("json")))
     if op == "agent":

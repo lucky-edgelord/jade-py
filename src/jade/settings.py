@@ -102,6 +102,11 @@ class Settings(BaseSettings):
     # decisions (Ollaya)
     ollaya_host: str = "http://localhost:11435"
     ollaya_model: str = ""
+    ollaya_key: str = ""
+
+    # reasoning extras
+    think_on: bool = True          # the think tool (tree of thoughts with verification)
+    delegate_on: bool = True       # the delegate tool (a sub-agent with a clean context)
 
     # API server
     api_host: str = "127.0.0.1"

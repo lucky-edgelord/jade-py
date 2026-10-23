@@ -19,6 +19,10 @@ from .registry import Registry, Tool, ToolContext, truncate_head, truncate_tail
 BINARY_EXT = re.compile(r"\.(png|jpe?g|gif|webp|bmp|ico|pdf|zip|xdc|gz|tar|db|sqlite3?|mp3|mp4|wav|ogg|webm|tflite|bin|so|exe)$", re.I)
 
 
+def _squash(s) -> str:
+    return re.sub(r"\s+", " ", s)
+
+
 def _is_text(b: bytes) -> bool:
     if b"\x00" in b[:4096]:
         return False
@@ -207,7 +211,7 @@ async def web_search(ctx: ToolContext, query: str, max_results: int = 5, **_):
                     res = [{"title": x["title"], "url": "https://en.wikipedia.org/wiki/" + x["title"].replace(" ", "_"), "snippet": re.sub(r"<[^>]+>", "", x.get("snippet", ""))} for x in r.json().get("query", {}).get("search", [])]
                 if not res:
                     raise ToolError("no results")
-                return f"Results from {p}:\n\n" + "\n\n".join(f"{i + 1}. {x['title']}\n   {x['url']}\n   {re.sub(r'\s+', ' ', x['snippet'] or '').strip()}" for i, x in enumerate(res))
+                return f"Results from {p}:\n\n" + "\n\n".join(f"{i + 1}. {x['title']}\n   {x['url']}\n   {_squash(x['snippet'] or '').strip()}" for i, x in enumerate(res))
             except Exception as e:
                 errors.append(f"{p}: {e}")
     raise ToolError("web search failed — " + "; ".join(errors) + ". Configure a provider (settings.search, searx_url or ollama_key).")

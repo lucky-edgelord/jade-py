@@ -627,13 +627,8 @@ class Flows:
                 raise RuntimeError(f"exit {code}" + (f": {out.strip()[-500:]}" if out.strip() else ""))
             return {"code": code, "stdout": out, "stderr": ""}
         if t == "decide":
-            if not j.tools.get("decide"):
-                raise RuntimeError("the decide tool (Ollaya) is not available")
-            r = await j.run_tool("decide", {"state": _dumps(p.get("state")), "question": p.get("question"), "type": p.get("kind") or "choice", "options": lines(p.get("options"))})
-            try:
-                return json.loads(r)
-            except ValueError:
-                return r
+            from .reasoning import decide_data
+            return await decide_data(j, p.get("state"), p.get("question") or "", p.get("kind") or "choice", lines(p.get("options")))
         if t == "llm":
             return await ask_once(j, _dumps(p.get("prompt")), str(p.get("system") or ""), bool(p.get("json")))
         if t == "agent":

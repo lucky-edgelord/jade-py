@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("jade")
 ITER = 210_000
-SECRET_KEYS = ("api_key", "ollama_key", "api_token", "ab_token", "ab_pass", "secrets")
+SECRET_KEYS = ("api_key", "ollama_key", "ollaya_key", "api_token", "ab_token", "ab_pass", "secrets")
 SKIP = re.compile(r"^/Jade/(\.index|\.data)(/|$)|(^|/)(\.git|node_modules|\.trash)(/|$)|\.jvtmp$")
 CONFIG_PATH = re.compile(r"^/jade/(soul|system|agents|memory|heartbeat|curiosity)\.md$|^/jade/mcp\.json$|^/jade/skills/|^/agents\.md$", re.I)
 

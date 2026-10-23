@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.0
+
+- think: the app's tree-of-thoughts engine (beam, best-first and PUCT search, tiered verifiers with vetoes, hard budgets, GAE logging to /Jade/Tot), with code checks run by Node in a read-only sandbox.
+- delegate: a sub-agent with a clean context, read-only unless allowed to write, with step and time limits.
+- decide: the Ollaya decision model (also for flow decide steps, jade.decide in scripts and think verifiers).
+- Runs on Python 3.11 again (f-strings that needed 3.12 were rewritten).
+
 ## 0.3.0
 
 - Automation, run by `jade daemon` and `jade serve`:

@@ -26,6 +26,10 @@ AUTO = ("memory", "journal")
 RRF = 60
 
 
+def _squash(s) -> str:
+    return re.sub(r"\s+", " ", s)
+
+
 def _imul(a: int, b: int) -> int:
     return ((a & 0xFFFFFFFF) * (b & 0xFFFFFFFF)) & 0xFFFFFFFF
 
@@ -332,7 +336,7 @@ class Embeddings:
         hits, note = await self.search(query, ["memory", "journal"], limit)
         if not hits:
             return ""
-        txt = "\n".join(f"{'memory' if h['coll'] == 'memory' else 'journal'}{' · ' + h['head'] if h['head'] else ''}: {re.sub(r'\s+', ' ', h['text'])[:300]}" for h in hits)
+        txt = "\n".join(f"{'memory' if h['coll'] == 'memory' else 'journal'}{' · ' + h['head'] if h['head'] else ''}: {_squash(h['text'])[:300]}" for h in hits)
         return (f"[{note}]\n" if note else "") + txt
 
     def add(self, coll: str, text: str, src: str = "", head: str = "") -> tuple[int, bool]:
