@@ -131,6 +131,10 @@ codemode tool) or `hidden`. Headers may use `${SECRET}` or `!command`. The `mcp`
 SSH agent): interactive sessions, one-shot commands and file transfer. Passwords and keys never reach the model,
 host keys are pinned on first use, and each command asks first unless the host has `confirm = false`.
 
+**Browser**: Jade's own headless Chromium (Playwright; `playwright install chromium`, or set `browser_path`), with
+cookies and logins kept in `<data>/browser`. The same tool as the app (open, read, click, type, select, scroll,
+eval, screenshot…), and it runs the `browser.*` steps of playbooks, inside the playbook's `allow_hosts`.
+
 Long chats are kept inside `num_ctx`: old tool outputs are shortened first, then the oldest part of the chat is
 summarised.
 
@@ -153,8 +157,8 @@ WEATHER_KEY = "…"
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
-history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP and SSH.
-Coming next: a headless browser (with playbook browser steps), Vector and Discord.
+history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH and the browser.
+Coming next: Vector and Discord.
 
 ## Tests
 

@@ -11,6 +11,6 @@ from .settings import Settings
 from .tools import Tool, ToolContext, ToolError
 from .vault import Vault
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __all__ = ["Jade", "Session", "Stepper", "Settings", "Vault", "Tool", "ToolContext", "ToolError",
            "Event", "Text", "Thinking", "ModelDone", "ToolStart", "ToolProgress", "ToolEnd", "Done", "Error", "__version__"]

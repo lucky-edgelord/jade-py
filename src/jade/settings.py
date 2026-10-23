@@ -115,6 +115,9 @@ class Settings(BaseSettings):
 
     timezone: str = Field(default="", description="IANA name; default: the system's")
     secrets: dict[str, str] = Field(default_factory=dict, description="named secrets for http_request ({{NAME}}) and scripts (env)")
+    browser_on: bool = True
+    browser_path: str = Field(default="", description="Chromium/Chrome executable for the browser tool (default: Playwright's, then chromium on PATH)")
+    browser_headless: bool = True
     ssh_hosts: list[dict] = Field(default_factory=list, description="machines for the ssh tool: {name, host, port, user, password | key | key_file | (agent), confirm}")
 
     # ------------------------------------------------------------------

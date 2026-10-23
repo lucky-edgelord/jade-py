@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- The browser: headless Chromium through Playwright with a kept profile, the app's page agent and actions, and the browser.* playbook steps (goto, click, type, select, check, press, scroll, wait_for, exists, url, title, extract, assert, eval, screenshot), limited to allow_hosts.
+- Packaging: tools/specs.json and the page scripts are included in the wheel.
+
 ## 0.5.0
 
 - MCP: the app's /Jade/mcp.json (streamable HTTP, plus local stdio servers), exposures (direct, deferred, codemode, hidden), the codemode JavaScript tool, resources, and an mcp tool to manage servers.
