@@ -201,15 +201,3 @@ class Memory:
                 out.append(f"## {sec}" if sec else "")
             out.append(f"- {m['text']}")
         return "\n".join(x for x in out if x is not None).strip(), len(pick), len(ls)
-
-    def journal_add(self, title: str, entry: str, facts: list[str] | None = None) -> str:
-        p = f"{JOURNAL_DIR}/{date.today().isoformat()}.md"
-        if not self.vault.is_file(p):
-            self.vault.write(p, f"# Journal {date.today().isoformat()}\n")
-        self.vault.append(p, f"\n## {title}\n{entry.strip()}\n")
-        for f in facts or []:
-            try:
-                self.save(f, "learned")
-            except ValueError:
-                pass
-        return p

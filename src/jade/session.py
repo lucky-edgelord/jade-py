@@ -75,6 +75,15 @@ class Session:
             self.title = P.title_from(text)
         return m
 
+    async def close(self) -> None:
+        """Leave the chat: Jade writes her journal entry for what is new (if the journal is on)."""
+        j = getattr(self.jade, "journal", None)
+        if j is not None:
+            try:
+                await j.write(self)
+            except Exception:
+                pass
+
     def stepper(self, text: str | None = None, images: list[str] | None = None) -> "Stepper":
         if text is not None:
             self.add_user(text, images)

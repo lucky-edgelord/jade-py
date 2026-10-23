@@ -127,6 +127,7 @@ class Repl:
         if cmd == "help":
             self.console.print(__doc__.split("\n", 2)[2])
         elif cmd == "new":
+            await self.s.close()
             self.s = j.session()
             self.console.print(f"[dim]new chat {self.s.id}[/]")
         elif cmd == "chats":
@@ -134,7 +135,9 @@ class Repl:
                 self.console.print(f"{c['id']}  [dim]{c['messages']:>3} msgs[/]  {c['title']}")
         elif cmd == "open":
             try:
-                self.s = j.session(rest)
+                nxt = j.session(rest)
+                await self.s.close()
+                self.s = nxt
                 self.console.print(f"[dim]opened {self.s.title}[/]")
                 for m in self.s.messages[-6:]:
                     if m.get("role") in ("user", "assistant") and (m.get("display") or m.get("content")):
@@ -208,6 +211,7 @@ class Repl:
                     break
                 continue
             await self.turn(line[1:] if line.startswith("//") else line)
+        await self.s.close()   # the journal entry for this chat
         await self.jade.aclose()
 
 
