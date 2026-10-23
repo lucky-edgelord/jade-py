@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.8.0
+
+- Phones and tablets, through the new **Jade Link** Android app (android/, built without the Android SDK like the app): it calls in to `jade serve` (long-poll, works on mobile data), or listens and jade-py calls it, or both. Several at once (tested with four): tools take `phone` = a name, several, or `all`, and run on each at the same time.
+- Tools back from the app: phone (alarms, calls, texts, contacts, sounds, volume, Bluetooth, media, casting…), screen (drive other apps through accessibility), senses (camera, microphone, location, sensors, torch, vibration), look (vault pictures and video frames), sentry.
+- Sentry: the app's rules in /Jade/Config/Sentry.json, run by each device's engine; fires run flows here and are acknowledged; per-device rules (`phones`) and systems (`devices`); the allow list (sentry_allow, sentry_limit) for Sentry-run calls and texts.
+- Pictures tools take (camera, screenshots, look) reach the model after the tool calls (look_images).
+- The web dashboard at / (/ui/): the app's look and its phone layout (bottom tabs, the drawer with chats and status), chat with streaming, the avatar (the app's Live2D Jade, themes and colours, taken from the app by scripts/extract_avatar.py), talk mode (hands-free, wake phrase, avatar-only screen with captions), vault, flows, schedules, Sentry, phones, logs, settings, approvals.
+- Jade Link: talk mode's voice for the dashboard (Android TTS and speech recognition), questions on the phone (Allow / Don't), kiosk mode (home screen, pinned, device owner lock), start talk mode on open.
+- API: approvals (a dashboard can answer, otherwise the phone is asked), /v1/link/*, /v1/phones, /v1/sentry, /v1/overview, /v1/vault/*, /v1/settings (masked secrets; only changed keys are written to the config file), /v1/logs, /v1/transcribe (stt_provider, stt_model), images in POST /v1/chat, stopping a streamed turn.
+- Fix: the config path follows $JADE_CONFIG when it is used, not when jade is imported.
+
 ## 0.7.0
 
 - Vector and Discord: Jade as a bot through the app's bridges, with the app's rules (owner / admins / everyone, channel whitelist, trigger words, DM policy), one session per chat, a private prompt and a small tool set for people who are not the owner, typing indicators, NO_REPLY, images, invites (Vector), Mini Apps (Vector), and notify_owner with the inbox notes.

@@ -2,9 +2,10 @@
 
 Jade, the agent from [Jade Vault](https://github.com/lucky-edgelord/jade-vault), as a Python package. Same vault
 layout as the app (notes with `[[links]]` and `#tags`, `/Jade/Memory.md`, `/Jade/SOUL.md`, `/AGENTS.md`, skills in
-`/Jade/skills`), so the app and Python can work on one vault. Nothing Android-specific: the shell is the real one.
+`/Jade/skills`), so the app and Python can work on one vault. The shell is the real one, and phones and tablets
+join through the **Jade Link** app (`android/`), so she can still call, text, see, listen and react to the world.
 
-Use her four ways:
+Use her five ways:
 
 | | |
 |---|---|
@@ -12,6 +13,7 @@ Use her four ways:
 | **REPL** | `jade` (or `jade repl`) |
 | **HTTP API** | `jade serve` (the app's `/v1` routes, plus POST, streaming and step mode) |
 | **step by step** | `session.stepper(...)`, `/step` in the REPL, or `/v1/chats/{id}/step` |
+| **dashboard** | `jade serve`, then open `http://<machine>:8760/` (also inside Jade Link on a phone) |
 
 ## Install
 
@@ -76,11 +78,66 @@ missing). The app's routes work as they do in the app:
 - `GET /v1/chat?message=…&session=<id>|new` → `{ok, reply, session, tool_calls, …}`
 - `GET /v1/status`, `GET /v1/history?session=`, `GET /v1/chats`
 
-Plus `POST /v1/chat {message, session, stream}` (Server-Sent Events with `stream: true`), `GET/DELETE /v1/chats/{id}`,
+Plus `POST /v1/chat {message, session, stream, images}` (Server-Sent Events with `stream: true`), `GET/DELETE /v1/chats/{id}`,
 step mode (`POST /v1/chats/{id}/step`, `/skip`, `/edit`, `/cancel`, `GET /pending`), and `GET /v1/tools`,
 `POST /v1/tools/{name}`, `GET /v1/schedules`, flows (`GET /v1/flows`, `GET /v1/flows/runs`,
-`POST /v1/flows/{name}/run {input}`, `POST /v1/flows/runs/{id}/stop`) and `GET /v1/events` (notifications as
-Server-Sent Events). Docs at `/docs`. `jade serve` also runs everything `jade daemon` runs.
+`POST /v1/flows/{name}/run {input}`, `POST /v1/flows/runs/{id}/stop`), `GET /v1/events` (notifications, approvals,
+Sentry fires as Server-Sent Events), `GET /v1/approvals` and `POST /v1/approvals/{id} {allow}`, phones
+(`GET /v1/phones`, `POST /v1/phones/{name}/call {op, args}`, and `/v1/link/*` for Jade Link), `GET /v1/sentry`, the
+dashboard's `/v1/overview`, `/v1/vault/*`, `GET/PATCH /v1/settings`, `/v1/logs` and `POST /v1/transcribe`. Docs at
+`/docs`. `jade serve` also runs everything `jade daemon` runs.
+
+## Dashboard
+
+`jade serve` also serves a web dashboard at `/` (`/ui/`), in the app's look: chat with streaming, tool cards and
+pictures; her avatar (the app's Live2D Jade, gemstone colours and all); **talk mode** (the Talk button: hands-free,
+she listens, answers out loud and listens again, with only her avatar on screen and captions; an optional wake
+phrase such as `hey jade`; Back, ✕ or a double tap leaves); the vault (browse, search, edit, preview); flows;
+schedules; Sentry; phones and tablets; logs; approvals (a tool call waiting for your yes pops up); and the settings.
+On a phone it is laid out like the app: one screen at a time, tabs along the bottom, and the drawer (☰) with chats,
+status and the other pages.
+
+It signs in with `api_token`. Talk mode hears through the phone's speech recognizer in Jade Link, the browser's in
+Chrome or Edge, or jade-py's own transcription model anywhere else (`stt_model`, e.g. `whisper-large-v3-turbo` on
+Groq, and "Use jade-py to hear" in the dashboard's settings). Her voice is the device's text-to-speech.
+
+## Phones and tablets (Jade Link)
+
+Install `dist/jade-link-<version>.apk` (built by `android/build-apk.sh`, see `android/README.md`) on each phone or
+tablet. Up to four (or more) can be linked at once, and Jade can use one, several or all of them at the same time.
+Each one connects whichever way suits it, or both:
+
+- **it calls in** (works anywhere it can reach jade-py, on Wi-Fi or mobile data, e.g. over Tailscale): in Jade Link
+  enter jade-py's address (`http://192.168.1.10:8760`) and the API token, and switch on Connect. `jade serve` must be
+  running and listening beyond this machine (`api_host = "0.0.0.0"`).
+- **jade-py calls it** (same network or a VPN): switch on Listen in Jade Link and add what it shows to the config:
+
+```toml
+[[phones]]
+name = "tablet"
+url = "http://192.168.1.20:8765"
+token = "jl_…"
+```
+
+Tools (each takes `phone`: a name, several names separated by commas, or `all`, which run at the same time):
+
+- **phone**: alarms, timers, ringing, sounds and radio streams, volume, calls, texts, contacts, call log, clipboard,
+  links, apps, brightness, keep awake, radio status, Bluetooth, media keys, notifications, and casting to a
+  Chromecast or Google TV. Calls and texts ask first (`phone_confirm`: on the phone, through jade's approver, or not).
+- **screen**: drives other apps like a screen reader (once you switch on Jade Link in Android's Accessibility settings).
+- **senses**: camera photos (she sees them), the microphone (recordings to the vault, or just how loud), location,
+  every sensor, battery, Wi-Fi, the torch, vibration.
+- **look**: pictures and video frames from the vault.
+- **sentry**: rules that make the devices react on their own (the app's Sentry: sensors, camera and microphone,
+  calls, texts, notifications, location, Wi-Fi, battery…), in `/Jade/Config/Sentry.json`. A rule can buzz or notify
+  on the device at once and run a flow here. Sentry runs on the devices in its `phones` list (default: all), a rule
+  with `phones` only there, and `devices` switches systems per device. Sentry-run flows may text or call only the
+  numbers in `sentry_allow`, at most `sentry_limit` an hour.
+
+Jade Link also gives the dashboard its talk-mode voice, asks you before calls and texts, and has **kiosk mode** (as
+in the app): it becomes the home screen, full screen and pinned in front, for a tablet on the wall; made device
+owner once (`adb shell dpm set-device-owner app.netrunner.jadelink/app.netrunner.jade.AdminReceiver`) it is a real
+lock. With "Start talk mode when it opens", the device is simply Jade, listening.
 
 ## Automation
 
@@ -177,9 +234,13 @@ WEATHER_KEY = "…"
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
-history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH, the browser, Vector and Discord: everything from the app except what only makes sense on a phone
-(Sentry, phone and screen control, voice, the Android UI).
+history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH, the
+browser, Vector and Discord, and through Jade Link: phone and screen control, the senses, Sentry, talk mode and kiosk
+mode, with the dashboard in the app's look. Not here: running models on the phone itself (LiteRT), and on-device
+vault storage (the vault lives with jade-py).
 
 ## Tests
 
-`pip install -e ".[dev]" && pytest` (a fake model server; no model needed).
+`pip install -e ".[dev]" && pytest` (a fake model server; no model needed). The dashboard tests use Chromium
+(Playwright), the Jade Link tests a JDK (its link code runs on a plain JVM against a real `jade serve`), and
+`android/test/run.sh` runs its Sentry engine and casting tests.
