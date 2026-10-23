@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jade-vault"
-version = "0.2.0"
+version = "0.3.0"
 description = "Jade, the agent from Jade Vault, in Python: use her as a library, a REPL, an HTTP API, or step by step"
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,6 +28,7 @@ dependencies = [
   "beautifulsoup4>=4.12",
   "sqlite-vec>=0.1.6",
   "numpy>=1.26",
+  "cryptography>=42",
 ]
 
 [project.optional-dependencies]

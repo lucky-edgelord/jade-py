@@ -78,7 +78,36 @@ missing). The app's routes work as they do in the app:
 
 Plus `POST /v1/chat {message, session, stream}` (Server-Sent Events with `stream: true`), `GET/DELETE /v1/chats/{id}`,
 step mode (`POST /v1/chats/{id}/step`, `/skip`, `/edit`, `/cancel`, `GET /pending`), and `GET /v1/tools`,
-`POST /v1/tools/{name}`. Docs at `/docs`.
+`POST /v1/tools/{name}`, `GET /v1/schedules`, flows (`GET /v1/flows`, `GET /v1/flows/runs`,
+`POST /v1/flows/{name}/run {input}`, `POST /v1/flows/runs/{id}/stop`) and `GET /v1/events` (notifications as
+Server-Sent Events). Docs at `/docs`. `jade serve` also runs everything `jade daemon` runs.
+
+## Automation
+
+`jade daemon` (or `jade serve`) runs, in the foreground and systemd-friendly:
+
+- **Schedules** (the `schedule` tool; `<data>/schedules.json`): a prompt, a shell command, a playbook or a flow, at
+  times in plain English ("every weekday at 9am", "in 20 minutes") or cron. Output goes to `/Jade/Logs/cron.log`.
+- **Heartbeat** (`hb_on`): every `hb_every` minutes inside `hb_start`-`hb_end`, Jade reads `/Jade/HEARTBEAT.md` and
+  acts on it; `HEARTBEAT_OK` replies stay silent.
+- **Playbooks** (`/Jade/Playbooks/*.json`, the app's format): deterministic automation shaped like Ansible, with no
+  model. Approved once, then they run from schedules and flows.
+- **Flows** (`/Jade/Flows/*.flow.json`, the app's format): n8n-style steps (tools, JavaScript, shell, AI answers,
+  Jade agent turns, notes, playbooks, if / switch / each, wait, notify, other flows), started by hand, on a schedule
+  or when a note or folder changes. Expressions and JavaScript steps run in real Node.js (`node` must be installed):
+  `fs` is rooted at the vault and `jade.tool(...)`, `jade.ask(...)`, `jade.flow(...)` call back into Python.
+  `jade flow list | run <name> [json] | runs`.
+- **Curiosity** (`cu_on`): Jade wakes at random times inside `cu_from`-`cu_to` (at most `cu_cap` a day) and picks
+  what to do by learning progress; the reward is measured from what changed in the vault. `cu_tools` limits her to
+  notes, notes and web, or all tools. `/Jade/CURIOSITY.md` is where you tell her what to look into.
+  `jade curiosity [--now]`.
+- **Backups** (`ab_on`, `ab_url`, `ab_token`, every `ab_hours`): the app's backup format, gzip, optionally encrypted
+  (`ab_encrypt`, `ab_pass`; AES-GCM, compatible with the app), to the Jade backup server. `jade backup-server --init`
+  then `jade backup-server` runs that server; `jade backup now | list | save <file> | restore <file or name>`.
+  Jade can check and start backups; only you restore.
+
+Notifications go to every `jade.notifiers` callback (the API streams them on `/v1/events`, the daemon prints them)
+and to `/Jade/Logs/notifications.log`.
 
 ## Tools
 
@@ -108,10 +137,9 @@ WEATHER_KEY = "…"
 
 ## Status
 
-This is the first release: the core agent, tools, memory, skills, the REPL, the API and step mode. Coming next, in
-this order: embeddings search (sqlite-vec), the journal, schedules, playbooks, flows, heartbeat and curiosity,
-backups, think (tree of thoughts), delegate, decide (Ollaya), chat history search, then MCP, SSH, a headless
-browser, Vector and Discord.
+Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
+history, schedules, the heartbeat, playbooks, flows, curiosity and backups. Coming next: think (tree of thoughts),
+delegate, decide (Ollaya), then MCP, SSH, a headless browser (with playbook browser steps), Vector and Discord.
 
 ## Tests
 

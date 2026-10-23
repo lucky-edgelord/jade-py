@@ -59,6 +59,11 @@ class Jade:
         self.sessions = SessionStore(settings.data_path / "chats")
         self.approver: Approver | None = None
         self.prompt_extras: list = []
+        self.notifiers: list[Callable[[str, str], Any]] = []   # notify(title, body) goes to each (the API streams them; the CLI prints)
+        self.daemon_loops: list = []                           # extra background loops parts add (curiosity, backups…)
+        self.daemon_running = False
+        self.background = asyncio.Lock()                       # background turns (schedules, heartbeat) run one at a time
+        self.state = self._load_state()
         self._extensions_loaded = False
         self._load_extensions()
 
@@ -112,6 +117,34 @@ class Jade:
         r = self.approver(call, tool)
         return bool(await r) if asyncio.iscoroutine(r) else bool(r)
 
+    # ---------------------------------------------------------------- notifications and state
+    def notify(self, title: str, body: str = "") -> None:
+        """Tell the user something (schedules, the heartbeat, tools). Goes to every notifier; logged in /Jade/Logs/notifications.log."""
+        try:
+            self.vault.append("/Jade/Logs/notifications.log", f"[{self.now().strftime('%Y-%m-%d %H:%M')}] {title}{': ' + body if body else ''}\n")
+        except Exception:
+            pass
+        for f in list(self.notifiers):
+            try:
+                r = f(title, body)
+                if asyncio.iscoroutine(r):
+                    asyncio.get_running_loop().create_task(r)
+            except Exception:
+                pass
+
+    def _load_state(self) -> dict:
+        try:
+            return json.loads((self.settings.data_path / "state.json").read_text())
+        except (OSError, ValueError):
+            return {}
+
+    def save_state(self) -> None:
+        p = self.settings.data_path / "state.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.state, indent=1))
+        tmp.replace(p)
+
     # ---------------------------------------------------------------- helpers used by the loop and tools
     def now(self) -> datetime:
         tz = None
@@ -151,6 +184,8 @@ class Jade:
             j.later(s, msgs)
 
     async def aclose(self) -> None:
+        if getattr(self, "flows", None):
+            await self.flows.aclose()
         await self.provider.aclose()
 
     async def __aenter__(self):

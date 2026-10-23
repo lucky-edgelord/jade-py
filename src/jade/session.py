@@ -44,6 +44,8 @@ class Session:
     meta: dict = field(default_factory=dict)
     _cancel: bool = field(default=False, repr=False)
     _busy: bool = field(default=False, repr=False)
+    allow_tools: set | None = field(default=None, repr=False)   # only these tools this run (curiosity wake-ups); not saved
+    max_steps: int | None = field(default=None, repr=False)     # per-chat limit below settings.max_steps; not saved
 
     # ---------------------------------------------------------------- persistence
     def to_dict(self) -> dict:
@@ -182,7 +184,7 @@ class Stepper:
                 if not self.pending:
                     s.save()
                 return
-            if self.steps >= self.jade.settings.max_steps:
+            if self.steps >= min(self.jade.settings.max_steps, self.s.max_steps or 10**9):
                 self._finish(f"(stopped after {self.steps} steps: max_steps)")
                 yield E.Error(f"stopped after {self.steps} model calls (settings.max_steps)")
                 yield E.Done(self.final, self.steps)
@@ -264,6 +266,11 @@ class Stepper:
         s, jade = self.s, self.jade
         yield E.ToolStart(c.id, c.name, c.arguments)
         t = jade.tools.get(c.name)
+        if s.allow_tools is not None and c.name not in s.allow_tools:
+            msg = f"Error: {c.name} is not available right now."
+            s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg})
+            yield E.ToolEnd(c.id, c.name, msg, error=True)
+            return
         need = jade.settings.approve == "all" or (jade.settings.approve == "risky" and t is not None and t.risky)
         if need and c.id not in self._approved:
             ok = await jade.ask_approval(c, t) if jade.approver else False

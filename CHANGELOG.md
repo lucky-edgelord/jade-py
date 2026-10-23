@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+- Automation, run by `jade daemon` and `jade serve`:
+  - schedules (prompt, shell command, playbook or flow; plain English or cron; catch-up after downtime);
+  - the heartbeat (HEARTBEAT.md, active hours, silent HEARTBEAT_OK);
+  - playbooks (the app's engine and format, approvals, legacy browser scripts converted);
+  - flows (the app's format and every step type, triggers on a schedule or when a note or folder changes, run records);
+  - curiosity (the app's learning-progress engine, CURIOSITY.md, tool limits per wake-up);
+  - backups (the app's backup format and encryption, the backup server included as `jade backup-server`).
+- Real Node.js for flow expressions and JavaScript steps, with `fs` rooted at the vault and `jade.*` calling back into Python.
+- CLI: `jade flow`, `jade backup`, `jade backup-server`, `jade curiosity`, `jade daemon`.
+- API: `/v1/flows` routes, `/v1/schedules`, `/v1/events`.
+- Chats can be limited to some tools and a lower step limit (`Session.allow_tools`, `Session.max_steps`).
+
 ## 0.2.0
 
 - Search by meaning: sqlite-vec + FTS5 hybrid index in /Jade/.index/vectors.db (the same file, schema and chunk hashes as the app), the embeddings tool, memory search by meaning.

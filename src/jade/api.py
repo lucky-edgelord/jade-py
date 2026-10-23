@@ -31,8 +31,34 @@ API = 1
 MAX_MESSAGE = 20000
 
 
-def create_app(jade: Jade) -> FastAPI:
-    app = FastAPI(title="Jade", version=__version__, description="Jade, the agent from Jade Vault, over HTTP")
+def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
+    """daemon=True also runs schedules, the heartbeat and curiosity while the server is up (jade serve does)."""
+    from contextlib import asynccontextmanager
+
+    listeners: set[asyncio.Queue] = set()
+
+    def on_notify(title: str, body: str) -> None:
+        for q in list(listeners):
+            q.put_nowait({"title": title, "body": body, "ts": time.time()})
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        jade.notifiers.append(on_notify)
+        task = None
+        if daemon:
+            from .scheduler import Daemon
+            d = Daemon(jade)
+            task = asyncio.create_task(d.run())
+        try:
+            yield
+        finally:
+            if task:
+                d.stop()
+                task.cancel()
+            if on_notify in jade.notifiers:
+                jade.notifiers.remove(on_notify)
+
+    app = FastAPI(title="Jade", version=__version__, description="Jade, the agent from Jade Vault, over HTTP", lifespan=lifespan)
     st = jade.settings
     state: dict[str, Any] = {"busy": set(), "steppers": {}, "current": None, "started": time.time()}
     lock = asyncio.Lock()
@@ -240,6 +266,54 @@ def create_app(jade: Jade) -> FastAPI:
         r = await jade.tools.call(name, body or {}, ToolContext(jade))
         return JSONResponse({"ok": not r.error, "api": API, "result": r.output, "ms": r.ms}, status_code=200 if not r.error else 422)
 
+    @app.get("/v1/events", dependencies=[Depends(auth)])
+    async def events_stream():
+        """Notifications (schedules, the heartbeat…) as Server-Sent Events."""
+        q: asyncio.Queue = asyncio.Queue()
+        listeners.add(q)
+
+        async def gen():
+            try:
+                while True:
+                    yield {"event": "notify", "data": json.dumps(await q.get(), ensure_ascii=False)}
+            finally:
+                listeners.discard(q)
+        return EventSourceResponse(gen())
+
+    @app.get("/v1/schedules", dependencies=[Depends(auth)])
+    async def schedules():
+        sch = getattr(jade, "scheduler", None)
+        return {"ok": True, "api": API, "schedules": sch.list if sch else [], "daemon": jade.daemon_running}
+
+    # ---- flows
+    @app.get("/v1/flows", dependencies=[Depends(auth)])
+    async def flows_list():
+        F = getattr(jade, "flows", None)
+        if not F:
+            return err(404, "no_flows", "flows are not available")
+        out = [{"name": f["name"], "path": f["_path"], "description": f.get("description", ""), "enabled": f.get("enabled") is not False,
+                "trigger": f.get("trigger") or {"type": "manual"}, "steps": len(f.get("steps") or []), "invalid": f.get("_bad")} for f in F.list()]
+        return {"ok": True, "api": API, "flows": out, "active": list(F.active.values())}
+
+    @app.get("/v1/flows/runs", dependencies=[Depends(auth)])
+    async def flow_runs(limit: int = 20):
+        F = getattr(jade, "flows", None)
+        return {"ok": True, "api": API, "runs": F.recent()[: max(1, min(100, limit))] if F else []}
+
+    @app.post("/v1/flows/{name}/run", dependencies=[Depends(auth)])
+    async def flow_run(name: str, body: dict | None = None):
+        F = getattr(jade, "flows", None)
+        f = F.find(name) if F else None
+        if not f:
+            return err(404, "unknown_flow", f"no flow named {name}")
+        run = await F.run(f, (body or {}).get("input"), via="api")
+        return JSONResponse({"ok": run["status"] == "ok", "api": API, "run": run}, status_code=200 if run["status"] == "ok" else 422)
+
+    @app.post("/v1/flows/runs/{run_id}/stop", dependencies=[Depends(auth)])
+    async def flow_stop(run_id: str):
+        F = getattr(jade, "flows", None)
+        return {"ok": bool(F and F.stop(run_id)), "api": API}
+
     @app.get("/health")
     async def health():
         return {"ok": True}
@@ -255,4 +329,4 @@ def serve(jade: Jade, host: str | None = None, port: int | None = None) -> None:
     if host not in ("127.0.0.1", "localhost", "::1") and not st.api_token:
         st.api_token = "jv_" + secrets.token_hex(18)
         print(f"Listening beyond this machine needs a token. For this run it is: {st.api_token}\n(set api_token in the config to keep one)")
-    uvicorn.run(create_app(jade), host=host, port=port, log_level="info")
+    uvicorn.run(create_app(jade, daemon=True), host=host, port=port, log_level="info")

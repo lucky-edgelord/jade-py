@@ -61,6 +61,33 @@ class Settings(BaseSettings):
     memory_lines: int = 60
     journal: bool = True
 
+    # heartbeat: every hb_every minutes inside hb_start-hb_end (HH:MM, empty = always) Jade checks /Jade/HEARTBEAT.md
+    hb_on: bool = False
+    hb_every: int = 30
+    hb_start: str = ""
+    hb_end: str = ""
+    hb_prompt: str = ""
+
+    # curiosity: self-directed wake-ups at random times inside cu_from-cu_to (while `jade daemon` / `jade serve` runs)
+    cu_on: bool = False
+    cu_min: int = 45
+    cu_max: int = 180
+    cu_from: str = "08:00"
+    cu_to: str = "22:00"
+    cu_cap: int = 5
+    cu_tools: Literal["notes", "web", "all"] = "web"
+    cu_acts_off: list[str] = Field(default_factory=list)
+
+    # scheduled backup to a Jade backup server (server/jade-backup-server.py in the app repo)
+    ab_on: bool = False
+    ab_url: str = ""
+    ab_token: str = ""
+    ab_hours: int = 24
+    ab_kind: Literal["full", "config"] = "full"
+    ab_keys: bool = False
+    ab_encrypt: bool = False
+    ab_pass: str = ""
+
     # web
     search: Literal["auto", "ollama", "searxng", "ddg", "wikipedia"] = "auto"
     searx_url: str = ""

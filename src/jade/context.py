@@ -103,7 +103,7 @@ class Router:
 
     def select(self, s: "Session", query: str) -> list[Tool]:
         jade = self.jade
-        active = jade.tools.active(jade)
+        active = [t for t in jade.tools.active(jade) if s.allow_tools is None or t.name in s.allow_tools or t.name == "more_tools"]
         self.hidden = []
         if jade.settings.tool_router == "off":
             return [t for t in active if t.name != "more_tools"]
