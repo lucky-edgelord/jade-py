@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Vector and Discord: Jade as a bot through the app's bridges, with the app's rules (owner / admins / everyone, channel whitelist, trigger words, DM policy), one session per chat, a private prompt and a small tool set for people who are not the owner, typing indicators, NO_REPLY, images, invites (Vector), Mini Apps (Vector), and notify_owner with the inbox notes.
+- Settings: [vector] and [discord] sections (also JADE_VECTOR__URL and the like).
+- Sessions can carry a prompt override (used for bridge chats with people who are not the owner).
+
 ## 0.6.0
 
 - The browser: headless Chromium through Playwright with a kept profile, the app's page agent and actions, and the browser.* playbook steps (goto, click, type, select, check, press, scroll, wait_for, exists, url, title, extract, assert, eval, screenshot), limited to allow_hosts.

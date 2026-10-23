@@ -135,6 +135,26 @@ host keys are pinned on first use, and each command asks first unless the host h
 cookies and logins kept in `<data>/browser`. The same tool as the app (open, read, click, type, select, scroll,
 eval, screenshot…), and it runs the `browser.*` steps of playbooks, inside the playbook's `allow_hosts`.
 
+**Vector and Discord**: Jade answers as a bot through the same bridges the app uses (`jade-vector` and
+`jade-discord` in the Jade Vault repository, MCP servers with a token). In the config:
+
+```toml
+[discord]
+on = true
+url = "http://127.0.0.1:8791/mcp"
+token = "…"
+owner = "123456789012345678"     # your user id (an npub for [vector]): you get every tool
+admins = []                      # Discord powers, no vault or shell
+channels = ["#general"]          # group chats she answers in (when addressed, or trigger = "all")
+dm = "anyone"                    # or "known", "owner"
+notify = "inbox"                 # notify_owner: "inbox", "urgent" or "now"
+```
+
+Each chat gets its own session. People who are not the owner get a short, private prompt (no notes, no memory) and
+only the messenger tool, web search and `notify_owner`, which files their message in `/Jade/Vector Inbox.md` or
+`/Jade/Discord Inbox.md` (and tells you at once when the setting says so). The bridges are polled while
+`jade daemon` or `jade serve` runs.
+
 Long chats are kept inside `num_ctx`: old tool outputs are shortened first, then the oldest part of the chat is
 summarised.
 
@@ -157,8 +177,8 @@ WEATHER_KEY = "…"
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
-history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH and the browser.
-Coming next: Vector and Discord.
+history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH, the browser, Vector and Discord: everything from the app except what only makes sense on a phone
+(Sentry, phone and screen control, voice, the Android UI).
 
 ## Tests
 

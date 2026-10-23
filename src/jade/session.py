@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, AsyncIterator, Callable
+from typing import Any, TYPE_CHECKING, AsyncIterator, Callable
 
 from . import events as E
 from . import prompt as P
@@ -46,6 +46,7 @@ class Session:
     _busy: bool = field(default=False, repr=False)
     allow_tools: set | None = field(default=None, repr=False)   # only these tools this run (curiosity wake-ups); not saved
     max_steps: int | None = field(default=None, repr=False)     # per-chat limit below settings.max_steps; not saved
+    prompt_override: Any = field(default=None, repr=False)     # fn(jade, session) -> system prompt (bridge chats with people who are not the owner)
 
     # ---------------------------------------------------------------- persistence
     def to_dict(self) -> dict:

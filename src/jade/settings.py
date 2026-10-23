@@ -3,12 +3,13 @@ then whatever the caller passes. The names follow the Jade Vault app where there
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Literal
 
 import tomli_w
-from pydantic import Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 CONFIG_PATH = Path(os.environ.get("JADE_CONFIG", Path.home() / ".config" / "jade" / "config.toml"))
@@ -31,8 +32,36 @@ OPENAI_PRESETS: dict[str, tuple[str, str]] = {
 }
 
 
+class BridgeSettings(BaseModel):
+    """A chat bridge (Vector or Discord): an MCP server over HTTP with a token, the same bridges the app uses."""
+    model_config = ConfigDict(validate_assignment=True)
+    on: bool = False
+    url: str = ""                  # the bridge (streamable HTTP MCP), e.g. http://127.0.0.1:8790/mcp
+    token: str = ""
+    command: str = ""              # or a local bridge started as a command (stdio MCP)
+    args: list[str] = Field(default_factory=list)
+    owner: str = ""                # the owner's npub (Vector) or user id (Discord): gets every tool
+    owner_name: str = ""
+    admins: list[str] = Field(default_factory=list)
+    channels: list[str] = Field(default_factory=list)   # group chats Jade answers in (ids or names)
+    dm: Literal["anyone", "known", "owner"] = "anyone"
+    trigger: Literal["mention", "all"] = "mention"
+    words: list[str] = Field(default_factory=lambda: ["jade"])
+    notify: Literal["inbox", "urgent", "now"] = "inbox"
+    poll: float = 5
+    images: bool = True
+    inbox_unanswered: bool = True
+    auto_join: Literal["admins", "anyone"] = "admins"
+    xdc_wake: bool = True
+
+    @field_validator("admins", "channels", "words", mode="before")
+    @classmethod
+    def _split(cls, v):
+        return [x for x in re.split(r"[\s,;]+", v) if x] if isinstance(v, str) else v
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="JADE_", extra="ignore", validate_assignment=True)
+    model_config = SettingsConfigDict(env_prefix="JADE_", extra="ignore", validate_assignment=True, env_nested_delimiter="__")
 
     # where things live
     vault: Path = Field(default=Path.home() / "JadeVault", description="the vault folder (same layout as the Jade Vault app)")
@@ -118,6 +147,8 @@ class Settings(BaseSettings):
     browser_on: bool = True
     browser_path: str = Field(default="", description="Chromium/Chrome executable for the browser tool (default: Playwright's, then chromium on PATH)")
     browser_headless: bool = True
+    vector: BridgeSettings = Field(default_factory=BridgeSettings)
+    discord: BridgeSettings = Field(default_factory=lambda: BridgeSettings(poll=3))
     ssh_hosts: list[dict] = Field(default_factory=list, description="machines for the ssh tool: {name, host, port, user, password | key | key_file | (agent), confirm}")
 
     # ------------------------------------------------------------------

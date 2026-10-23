@@ -67,6 +67,9 @@ def environment(jade: "Jade") -> str:
 
 
 def build(jade: "Jade", session: "Session", tools: list, query: str = "") -> str:
+    if getattr(session, "prompt_override", None):
+        out = session.prompt_override(jade, session)
+        return out + (f"\n\nEarlier in this chat (summarised to save room):\n{session.summary}" if session.summary else "")
     v = jade.vault
     idx = v.index()
     custom = _read(jade, SYSTEM_PATH)
