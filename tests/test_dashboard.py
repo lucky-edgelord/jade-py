@@ -115,7 +115,7 @@ async def test_settings_approvals_logs(site):
     from jade.providers import ToolCall
     await page.goto(base + "/ui/#/")
     await page.wait_for_selector("text=Talk to her")
-    await asyncio.sleep(0.5)
+    await page.wait_for_selector("#statusDot.ok", state="attached", timeout=10000)   # the page's event stream is open
     t = asyncio.create_task(jade.ask_approval(ToolCall("bash", {"command": "rm -rf /tmp/x"}), jade.tools.get("bash")))
     await page.wait_for_selector("#apYes", timeout=10000)
     assert "rm -rf /tmp/x" in await page.inner_text(".modal pre")
@@ -150,7 +150,14 @@ async def test_phones_sentry_and_phone_layout(site):
         await page.check("input[data-dev=tablet]")
         await page.wait_for_function("document.querySelector('input[data-dev=tablet]') && document.querySelector('input[data-dev=tablet]').checked && document.querySelectorAll('select[data-sysdev]').length > 0")
         await page.select_option("select[data-sysdev=camera][data-dev=tablet]", "on")
-        await asyncio.sleep(0.6)
+
+        def saved():
+            try:
+                c = json.loads(jade.vault.read("/Jade/Config/Sentry.json"))
+            except (OSError, ValueError):
+                return False
+            return c.get("phones") == ["tablet"] and (c.get("devices") or {}).get("tablet", {}).get("systems", {}).get("camera") is True
+        assert await wait_for(saved, 10)   # the page saves each change; wait for it rather than for a fixed time
         cfg = json.loads(jade.vault.read("/Jade/Config/Sentry.json"))
         assert cfg["phones"] == ["tablet"] and cfg["devices"]["tablet"]["systems"]["camera"] is True
         assert await wait_for(lambda: (phones[1].rules or {}).get("systems", {}).get("camera") is True and phones[0].rules and phones[0].rules["enabled"] is False, 10)

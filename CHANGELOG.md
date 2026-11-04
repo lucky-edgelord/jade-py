@@ -14,7 +14,8 @@ Caught up with Jade Vault 2.18-2.22.
 - Settings page: the new settings, in "Embeddings and decisions", "On-device models and USB" and "Jade Fleet". The fleet token is kept out of backups.
 - Fix: a note that disappears while the vault is being indexed, or cannot be read (a broken link), no longer breaks the link and tag index.
 - Fix: after one server stopped in a process (`create_app` used again, as in tests or an embedding app), the next one's event streams (`/v1/events`: approvals, notifications, talk mode) closed at once; sse-starlette's process-wide shutdown flag is now reset when the API starts.
-- Test: the dashboard-approvals test waits for the event stream instead of a fixed pause.
+- Tests wait for the event stream and for saved settings instead of fixed pauses (they failed now and then on slower machines).
+- CI (GitHub Actions): Python 3.11, 3.12 and 3.13 with every extra, Chromium and a JDK, flake8, and Jade Link's JVM tests.
 
 ## 0.8.0
 
