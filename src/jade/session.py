@@ -100,6 +100,22 @@ class Session:
             async for ev in st.stream():
                 yield ev
 
+    def retry_stepper(self) -> "Stepper":
+        """Drop the last reply (and its tool rounds) and get a new one to the same message. The old run stays in the
+        trajectory log, so 👎 the worse reply and 👍 the better one makes a preference pair (DPO / KTO)."""
+        i = next((k for k in range(len(self.messages) - 1, -1, -1) if self.messages[k].get("role") == "user" and not self.messages[k].get("auto")), None)
+        if i is None:
+            raise ValueError("nothing to retry: no message from you in this chat")
+        del self.messages[i + 1:]
+        return Stepper(self)
+
+    async def retry(self) -> AsyncIterator[E.Event]:
+        """retry_stepper(), run to the end."""
+        st = self.retry_stepper()
+        while not st.done:
+            async for ev in st.stream():
+                yield ev
+
     async def ask(self, text: str, images: list[str] | None = None, on_event: Callable[[E.Event], None] | None = None) -> str:
         """Run a turn and return the answer."""
         final, err = "", ""
@@ -140,6 +156,7 @@ class Stepper:
         self.done = False
         self.final = ""
         self.provider = None      # the model the router picked for this turn (None: the main one)
+        self.traj = self.jade.traj.recorder(session)   # the trajectory log of this turn (for fine-tuning exports)
         self._approved: set[str] = set()
         self._images: list[tuple[str, str]] = []
         self._early: dict[str, tuple] = {}   # web calls started ahead of their turn: id -> (task, queue, ctx, arguments)
@@ -149,7 +166,7 @@ class Stepper:
         i = self._find(call_id)
         c = self.pending.pop(i)
         self._drop_early(c.id)
-        self.s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": f"Not run: {reason}."})
+        self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": f"Not run: {reason}."})
 
     def edit(self, call_id: str | None, arguments: dict) -> None:
         c = self.pending[self._find(call_id)]
@@ -181,6 +198,7 @@ class Stepper:
             for c in list(self.pending):
                 self.skip(c.id, "the turn was stopped")
             self._finish("(stopped)")
+            self.traj.end("aborted")
             yield E.Error("stopped")
             yield E.Done(self.final, self.steps)
             return
@@ -195,6 +213,7 @@ class Stepper:
                 return
             if self.steps >= min(self.jade.settings.max_steps, self.s.max_steps or 10**9):
                 self._finish(f"(stopped after {self.steps} steps: max_steps)")
+                self._end_traj("ok")
                 yield E.Error(f"stopped after {self.steps} model calls (settings.max_steps)")
                 yield E.Done(self.final, self.steps)
                 return
@@ -230,8 +249,13 @@ class Stepper:
                     s.meta.pop("routed", None)
                 yield E.Routed(r.provider, r.model, r.note, r.confidence, r.ms, r.error)
         text, thinking, calls, usage = [], [], [], None
+        prov = self.provider or jade.provider
+        schemas = [t.schema(jade) for t in tools]
+        pname, pmodel = getattr(prov, "name", ""), getattr(prov, "model", "")
+        st_ = jade.settings
+        self.traj.call(msgs, schemas, pname, pmodel, {"temperature": st_.temperature, "num_ctx": st_.num_ctx, "think": bool(st_.think)})
         try:
-            async for c in (self.provider or jade.provider).chat(msgs, [t.schema(jade) for t in tools] or None):
+            async for c in prov.chat(msgs, schemas or None):
                 if s._cancel:
                     break
                 if c.thinking:
@@ -246,6 +270,7 @@ class Stepper:
                     usage = c.usage
         except ProviderError as e:
             self._finish("")
+            self.traj.end("error", str(e))
             s.save()
             yield E.Error(str(e))
             yield E.Done("", self.steps)
@@ -263,6 +288,9 @@ class Stepper:
         if calls:
             m["tool_calls"] = [c.to_dict() for c in calls]
         s.messages.append(m)
+        last = getattr(prov, "last", prov)   # a fallback chain: the provider that answered
+        self.traj.reply(m, getattr(last, "name", pname), getattr(last, "model", pmodel), usage.prompt_tokens if usage else None,
+                        usage.completion_tokens if usage else None, estimate_tokens(msgs))
         if usage:
             s.meta["last_prompt_tokens"] = usage.prompt_tokens
         yield E.ModelDone(body, [c.to_dict() for c in calls], usage.prompt_tokens if usage else 0, usage.completion_tokens if usage else 0)
@@ -273,9 +301,21 @@ class Stepper:
                     s.tools_loaded.append(c.name)   # the model named a tool that was not sent: keep it from now on
         else:
             self._finish(clean_reply(body))
+            self._end_traj("aborted" if s._cancel else "ok")
             s.save()
             jade._after_turn(s)
             yield E.Done(self.final, self.steps)
+
+    def _end_traj(self, outcome: str) -> None:
+        rid = self.traj.end(outcome)
+        if rid:
+            a = next((m for m in reversed(self.s.messages) if m.get("role") == "assistant"), None)
+            if a is not None:
+                a["traj"] = rid   # rating this reply rates its run
+
+    def _tool_result(self, m: dict) -> None:
+        self.s.messages.append(m)
+        self.traj.tool(m.get("name", ""), m.get("content", ""), bool(m.get("error")))
 
     def _flush_images(self) -> None:
         """Pictures tools showed (camera, screenshots, look) go to the model as one user message after the tool results."""
@@ -323,7 +363,7 @@ class Stepper:
         t = jade.tools.get(c.name)
         if s.allow_tools is not None and c.name not in s.allow_tools:
             msg = f"Error: {c.name} is not available right now."
-            s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg})
+            self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg, "error": True})
             yield E.ToolEnd(c.id, c.name, msg, error=True)
             return
         need = jade.settings.approve == "all" or (jade.settings.approve == "risky" and t is not None and t.risky)
@@ -331,7 +371,7 @@ class Stepper:
             ok = await jade.ask_approval(c, t) if jade.approver else False
             if not ok:
                 msg = "Not run: the user did not approve this call." if jade.approver else "Not run: approval is required (settings.approve) and nobody is here to approve."
-                s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg})
+                self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg, "error": True})
                 yield E.ToolEnd(c.id, c.name, msg, error=True, skipped=True)
                 return
         self._start_early(c)
@@ -361,7 +401,7 @@ class Stepper:
             out, err, ms = r.output, r.error, r.ms
         except asyncio.CancelledError:
             out, err, ms = "Interrupted: the user stopped the turn.", True, 0
-        s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": out, "ts": time.time(), **({"error": True} if err else {})})
+        self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": out, "ts": time.time(), **({"error": True} if err else {})})
         yield E.ToolEnd(c.id, c.name, out, err, ms)
 
 

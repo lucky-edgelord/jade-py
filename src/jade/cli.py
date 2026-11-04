@@ -303,3 +303,48 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+traj_app = typer.Typer(help="The trajectory log: every run as the model saw it, for fine-tuning (with 👍/👎 ratings for DPO / KTO).", no_args_is_help=True)
+app.add_typer(traj_app, name="traj")
+
+
+@traj_app.command("stats")
+def traj_stats():
+    """How many runs are logged, rated and failed."""
+    j = _jade()
+    s = j.traj.stats()
+    typer.echo(f"{s['runs']} runs · {s['steps']} model calls · {s['bytes'] / 1024:.1f} KB · 👍 {s['good']} · 👎 {s['bad']} · {s['errors']} errors"
+               f"  ({j.traj.folder}{'' if j.settings.traj_on else '; logging is off: traj_on = false'})")
+
+
+@traj_app.command("export")
+def traj_export(fmt: Optional[str] = typer.Option(None, "--format", "-f", help="openai (Unsloth, Axolotl, TRL) or sharegpt (LLaMA-Factory); default traj_format"),
+                which: Optional[str] = typer.Option(None, "--filter", help="clean (finished, minus 👎), good (only 👍), prefs (finished, 👎 too: DPO / KTO), all; default traj_filter"),
+                thinking: Optional[bool] = typer.Option(None, "--thinking/--no-thinking", help="include the model's thinking"),
+                meta: Optional[bool] = typer.Option(None, "--meta/--no-meta", help="include ratings and run info (a metadata field per line)"),
+                out: Optional[Path] = typer.Option(None, "--out", "-o", help="write to this file (default: stdout)")):
+    """Export the log as JSONL training data."""
+    j = _jade()
+    try:
+        text = j.traj.export(fmt, which, thinking, meta)
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(2)
+    n = text.count("\n")
+    if out:
+        out.write_text(text)
+        typer.echo(f"Exported {n} of {j.traj.count()} runs to {out}", err=True)
+    else:
+        sys.stdout.write(text)
+        if not n:
+            typer.echo("No logged runs match that filter." if j.traj.count() else "Nothing logged yet: chat with Jade first.", err=True)
+
+
+@traj_app.command("clear")
+def traj_clear(yes: bool = typer.Option(False, "--yes", help="do not ask")):
+    """Delete every logged run."""
+    j = _jade()
+    if not yes and not typer.confirm(f"Delete all {j.traj.count()} logged runs?"):
+        raise typer.Exit(1)
+    typer.echo(f"Deleted {j.traj.clear()} runs.")

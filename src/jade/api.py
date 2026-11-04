@@ -8,6 +8,8 @@ Compatible with the Jade Vault app's API (GET, JSON): /v1/chat?message=…&sessi
   GET  /v1/chats/{id}/pending                     the tool calls waiting in step mode
   POST /v1/chats/{id}/skip {id?, reason?}  /edit {id?, arguments}  /cancel
   GET  /v1/tools   POST /v1/tools/{name} {…arguments}
+  POST /v1/chats/{id}/rate {index?, rating: 1|-1|null}   POST /v1/chats/{id}/retry {stream?}
+  GET  /v1/trajectories   GET /v1/trajectories/export?format=&filter=&thinking=&meta=   DELETE /v1/trajectories
 Auth: Authorization: Bearer <settings.api_token> (or ?token=). A token is required unless the server listens on
 loopback only."""
 from __future__ import annotations
@@ -298,6 +300,84 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
         if r:
             r.cancel()
         return {"ok": True, "api": API, "stopped": bool(s or r)}
+
+    # ---- ratings, retry and the trajectory log (fine-tuning exports; DPO / KTO with ratings)
+    @app.post("/v1/chats/{sid}/rate", dependencies=[Depends(auth)])
+    async def rate(sid: str, body: dict):
+        from .traj import rate_message
+        try:
+            s = jade.session(sid)
+        except (KeyError, ValueError):
+            return err(404, "unknown_session", f"no chat with id {sid}")
+        if s.id in state["busy"]:
+            return err(409, "busy", "Jade is still working in this chat.", busy=True)
+        r = body.get("rating")
+        r = {"up": 1, "good": 1, "down": -1, "bad": -1}.get(r, r) if isinstance(r, str) else r
+        try:
+            out = rate_message(s, body.get("index"), int(r) if r is not None else None)
+        except (ValueError, TypeError) as e:
+            return err(400, "bad_rating", str(e))
+        return {"ok": True, "api": API, **out}
+
+    @app.post("/v1/chats/{sid}/retry", dependencies=[Depends(auth)])
+    async def retry(sid: str, body: dict | None = None):
+        body = body or {}
+        try:
+            s = jade.session(sid)
+        except (KeyError, ValueError):
+            return err(404, "unknown_session", f"no chat with id {sid}")
+        if s.id in state["busy"]:
+            return err(409, "busy", "Jade is already working in this chat.", busy=True)
+        try:
+            stp = s.retry_stepper()
+        except ValueError as e:
+            return err(409, "nothing_to_retry", str(e))
+        state["busy"].add(s.id)
+        state["running"][s.id] = s
+
+        async def evs():
+            while not stp.done:
+                async for ev in stp.stream():
+                    yield ev
+
+        if truthy(body.get("stream")):
+            async def gen():
+                try:
+                    async for ev in evs():
+                        yield {"event": ev.type, "data": json.dumps({**ev.to_dict(), "session": s.id}, ensure_ascii=False)}
+                finally:
+                    state["busy"].discard(s.id)
+                    state["running"].pop(s.id, None)
+            return EventSourceResponse(gen())
+        try:
+            error = ""
+            async for ev in evs():
+                if isinstance(ev, E.Error):
+                    error = ev.message
+        finally:
+            state["busy"].discard(s.id)
+            state["running"].pop(s.id, None)
+        return JSONResponse({"ok": bool(stp.final) or not error, "api": API, "session": info(s), "reply": stp.final,
+                             "error": {"code": "agent_error", "message": error} if error else None}, status_code=200 if (stp.final or not error) else 502)
+
+    @app.get("/v1/trajectories", dependencies=[Depends(auth)])
+    async def traj_stats():
+        return {"ok": True, "api": API, "on": st.traj_on, **jade.traj.stats(), "format": st.traj_format, "filter": st.traj_filter,
+                "thinking": st.traj_thinking, "meta": st.traj_meta}
+
+    @app.get("/v1/trajectories/export", dependencies=[Depends(auth)])
+    async def traj_export(format: str | None = None, filter: str | None = None, thinking: str | None = None, meta: str | None = None):   # noqa: A002
+        from fastapi.responses import Response
+        try:
+            text = jade.traj.export(format, filter, None if thinking is None else truthy(thinking), None if meta is None else truthy(meta))
+        except ValueError as e:
+            return err(400, "bad_export", str(e))
+        name = f"jade-trajectories-{format or st.traj_format}-{time.strftime('%Y-%m-%d')}.jsonl"
+        return Response(text, media_type="application/x-ndjson", headers={"Content-Disposition": f'attachment; filename="{name}"', "X-Runs": str(text.count(chr(10)))})
+
+    @app.delete("/v1/trajectories", dependencies=[Depends(auth)])
+    async def traj_clear():
+        return {"ok": True, "api": API, "deleted": jade.traj.clear()}
 
     # ---- tools
     @app.get("/v1/tools", dependencies=[Depends(auth)])

@@ -316,35 +316,47 @@ function toolCard(c, res) {
 function renderChat() {
   const el = $('#stream'); if (!el) return;
   const results = {}; for (const m of chat.msgs) if (m.role === 'tool') results[m.tool_call_id] = m;
+  const lastUser = chat.msgs.findLastIndex(m => m.role === 'user' && !m.auto);
+  const lastReply = chat.msgs.findLastIndex((m, k) => k > lastUser && m.role === 'assistant' && m.content && !(m.tool_calls || []).length);
   const html = [];
   for (const m of chat.msgs) {
     if (m.role === 'user' && m.auto) { html.push(`<div class="msg-ai"><div class="pics">${(m.images || []).map(b => `<img src="data:image/jpeg;base64,${b}" alt="a picture from a tool">`).join('')}</div></div>`); continue; }
     if (m.role === 'user') { html.push(`<div class="msg-user"><div class="who disp">You</div><div class="bubble">${esc(cleanUser(m.display || m.content))}</div>${m.images?.length ? `<div class="pics" style="justify-content:flex-end">${m.images.map(b => `<img src="data:image/jpeg;base64,${b}" alt="your picture">`).join('')}</div>` : ''}</div>`); continue; }
     if (m.role === 'assistant') {
-      html.push(`<div class="msg-ai"><div class="who disp">Jade</div>${m.thinking ? `<details><summary class="hint">thinking…</summary><div class="think">${esc(m.thinking)}</div></details>` : ''}${m.content ? `<div class="md">${md(m.content)}</div>` : ''}${(m.tool_calls || []).map(c => toolCard(c, results[c.id])).join('')}</div>`);
+      const i = chat.msgs.indexOf(m); const reply = m.content && !(m.tool_calls || []).length;
+      const bar = reply ? `<div class="rate-bar"><button type="button" data-rate="1" data-i="${i}" class="${m.rating === 1 ? 'on' : ''}" title="Good reply (kept in fine-tuning exports)" aria-label="Good reply">👍</button><button type="button" data-rate="-1" data-i="${i}" class="${m.rating === -1 ? 'on' : ''}" title="Bad reply (left out of exports, or the rejected side of a DPO pair)" aria-label="Bad reply">👎</button>${i === lastReply ? '<button type="button" data-retry="1" title="A new answer to your last message (the old one stays in the trajectory log)" aria-label="Retry">↻</button>' : ''}</div>` : '';
+      html.push(`<div class="msg-ai"><div class="who disp">Jade</div>${m.thinking ? `<details><summary class="hint">thinking…</summary><div class="think">${esc(m.thinking)}</div></details>` : ''}${m.content ? `<div class="md">${md(m.content)}</div>` : ''}${(m.tool_calls || []).map(c => toolCard(c, results[c.id])).join('')}${bar}</div>`);
     }
   }
   if (!chat.msgs.length) html.push(`<div class="empty" style="margin:auto;max-width:520px">Ask anything. She can use your vault, the web, your phones and tablets, flows and schedules.<div class="row" style="justify-content:center;margin-top:10px">${['What is on my phones right now?', 'Summarise my inbox', 'Where is my phone?'].map(x => `<button class="example" data-ex="${esc(x)}">${esc(x)}</button>`).join('')}</div></div>`);
   el.innerHTML = html.join('');
-  el.onclick = e => { const x = e.target.closest('[data-ex]'); if (x) { $('#input').value = x.dataset.ex; $('#input').focus(); } const img = e.target.closest('.pics img'); if (img) modal(`<img src="${img.src}" alt="">`); };
+  el.onclick = e => { const rb = e.target.closest('[data-rate]'); if (rb) { rateReply(+rb.dataset.i, +rb.dataset.rate); return; } if (e.target.closest('[data-retry]')) { send('', { retry: true }); return; } const x = e.target.closest('[data-ex]'); if (x) { $('#input').value = x.dataset.ex; $('#input').focus(); } const img = e.target.closest('.pics img'); if (img) modal(`<img src="${img.src}" alt="">`); };
   el.scrollTop = el.scrollHeight;
+}
+async function rateReply(i, v) {
+  const m = chat.msgs[i]; if (!m || !chat.id || chat.running) return;
+  const rating = m.rating === v ? null : v;
+  try { const r = await api(`/v1/chats/${chat.id}/rate`, { method: 'POST', body: { index: i, rating } }); m.rating = r.rating ?? undefined; renderChat(); }
+  catch (e) { toast(e.message, 'bad'); }
 }
 function sendFromBox() { const inp = $('#input'); const t = inp.value.trim(); if (!t && !chat.attach.length) return; inp.value = ''; inp.style.height = 'auto'; send(t || 'What do you see?'); }
 async function stopTurn() { if (chat.id) { try { await api(`/v1/chats/${chat.id}/cancel`, { method: 'POST' }); } catch {} } chat.abort?.abort(); }
 
 /** One turn, streamed: her words appear as they come, tool calls as cards; the avatar and talk mode follow along. */
-async function send(text) {
+async function send(text, { retry = false } = {}) {
   if (chat.running) { toast('Jade is still answering. Stop her first, or wait.', 'bad'); return; }
-  const images = chat.attach.splice(0); renderAttach();
-  chat.msgs.push({ role: 'user', display: text, content: text, images }); renderChat();
+  const images = retry ? [] : chat.attach.splice(0); renderAttach();
+  if (retry) { const u = chat.msgs.findLastIndex(m => m.role === 'user' && !m.auto); if (u < 0 || !chat.id) return; text = chat.msgs[u].display || chat.msgs[u].content; chat.msgs = chat.msgs.slice(0, u + 1); }
+  else chat.msgs.push({ role: 'user', display: text, content: text, images });
+  renderChat();
   chat.running = true; setSending(true); jadeMood('thinking'); jadeBubble(text, 'You');
   const el = $('#stream');
   const ai = document.createElement('div'); ai.className = 'msg-ai'; ai.innerHTML = '<div class="who disp">Jade</div><div class="md caret"></div>'; el?.appendChild(ai);
   let mdEl = ai.querySelector('.md'), text_ = '', think = '', all = '', final = '';
   const ctl = chat.abort = new AbortController();
   try {
-    const r = await fetch('/v1/chat', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
-      body: JSON.stringify({ message: text, session: chat.id || 'new', stream: true, ...(images.length ? { images } : {}) }) });
+    const r = await fetch(retry ? `/v1/chats/${encodeURIComponent(chat.id)}/retry` : '/v1/chat', { method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+      body: JSON.stringify(retry ? { stream: true } : { message: text, session: chat.id || 'new', stream: true, ...(images.length ? { images } : {}) }) });
     if (!r.ok) { let m = 'HTTP ' + r.status; try { const j = await r.json(); m = j.error?.message || j.detail?.error?.message || m; } catch {} throw new Error(m); }
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf = '', ev = 'message';
     for (;;) {
@@ -796,6 +808,7 @@ PAGES.logs = async (v, parts) => {
 /* ---------------- settings ---------------- */
 const GROUPS = [
   ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
+  ['Trajectory log (fine-tuning data; 👍/👎 for DPO / KTO)', ['traj_on', 'traj_format', 'traj_filter', 'traj_thinking', 'traj_meta']],
   ['Model router (laya picks the model for each turn)', ['router_on', 'router_models', 'router_decider', 'router_min_confidence']],
   ['The agent', ['approve', 'max_steps', 'tool_router', 'bash_timeout', 'shell', 'max_tool_output', 'memory_lines', 'journal', 'think_on', 'delegate_on', 'timezone']],
   ['Hearing (talk mode through jade-py)', ['stt_provider', 'stt_model']],
@@ -852,7 +865,7 @@ PAGES.settings = async v => {
           <div class="row" style="margin-top:10px"><button class="btn" id="uTest">Hear her</button><button class="btn" id="uTheme">Her colours and look</button><label class="row"><input type="checkbox" id="uShow"${S.jadeShow ? ' checked' : ''}> Show her avatar</label></div></div></div>
       ${IN_APP && naHas('setKiosk') ? `<div class="row-item" style="margin-top:12px"><div class="col"><span class="t">Kiosk mode</span><span class="d" id="kioskSt">…</span></div><label class="switch"><input type="checkbox" id="uKiosk"><span></span></label><button class="btn btn-ghost" id="uSetup">Phone setup</button></div>` : ''}
     </div>
-    ${GROUPS.map(([title, keys]) => `<details class="pane" style="margin-top:12px"${title === 'The model' ? ' open' : ''}><summary class="pane-h" style="margin:0">${esc(title)}</summary>${keys.map(row).join('')}</details>`).join('')}
+    ${GROUPS.map(([title, keys]) => `<details class="pane" style="margin-top:12px"${title === 'The model' ? ' open' : ''}><summary class="pane-h" style="margin:0">${esc(title)}</summary>${keys.map(row).join('')}${title.startsWith('Trajectory') ? '<div style="margin-top:10px"><div class="help mono" id="trajStats">…</div><div class="row" style="margin-top:6px"><button class="btn btn-solid" id="trajExport">Export JSONL</button><span class="help">Uses the format, filter and switches above (save them first). For DPO / KTO: switch on traj_meta, set traj_filter to prefs, then 👎 a reply, ↻ retry, 👍 the better one.</span></div></div>' : ''}</details>`).join('')}
     ${other.length ? `<details class="pane" style="margin-top:12px"><summary class="pane-h" style="margin:0">Other</summary>${other.map(row).join('')}</details>` : ''}
     <div class="row" style="margin:14px 0 30px;position:sticky;bottom:0;background:var(--void);padding:8px 0"><button class="btn btn-solid" id="saveSet">Save jade-py settings</button><span class="help">Saved to ${esc(st.config)}</span></div>`;
   // this device
@@ -865,6 +878,18 @@ PAGES.settings = async v => {
     ks(); $('#uKiosk').onchange = e => { NA().setKiosk(e.target.checked); setTimeout(ks, 900); };
     $('#uSetup').onclick = () => NA().setup?.();
   }
+  // the trajectory log
+  (async () => { try { const t = await api('/v1/trajectories'); $('#trajStats').textContent = t.runs ? `${t.runs} runs · ${t.steps} model calls · ${(t.bytes / 1024).toFixed(1)} KB · 👍 ${t.good} · 👎 ${t.bad} · ${t.errors} errors` : 'Nothing logged yet.'; } catch {} })();
+  $('#trajExport').onclick = async () => {
+    try {
+      const r = await fetch('/v1/trajectories/export', { headers: { Authorization: 'Bearer ' + TOKEN } }); if (!r.ok) throw new Error('HTTP ' + r.status);
+      const text = await r.text(); const n = text ? text.trim().split('\n').filter(Boolean).length : 0;
+      if (!n) { toast('No logged runs match that filter.', 'bad'); return; }
+      const name = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'jade-trajectories.jsonl';
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-ndjson' })); a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      toast(`Exported ${n} runs`, 'ok');
+    } catch (e) { toast(e.message, 'bad'); }
+  };
   // jade-py
   $('#saveSet').onclick = async () => {
     const body = {};

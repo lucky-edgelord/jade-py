@@ -140,6 +140,13 @@ class Settings(BaseSettings):
     ollaya_key: str = ""
     decide_ollama_host: str = Field(default="", description="Ollama address for decisions (empty: host)")
 
+    # the trajectory log: every run as the model saw it, for fine-tuning (the app's format; `jade traj export`)
+    traj_on: bool = Field(default=True, description="log each run (kept on this machine, in <data>/trajectories)")
+    traj_format: Literal["openai", "sharegpt"] = Field(default="openai", description="export format: openai (Unsloth, Axolotl, TRL) or sharegpt (LLaMA-Factory)")
+    traj_filter: Literal["clean", "good", "prefs", "all"] = Field(default="clean", description="which runs to export: clean (finished, minus 👎), good (only 👍), prefs (finished, 👎 too: for DPO / KTO), all (errors too)")
+    traj_thinking: bool = Field(default=False, description="include the model's thinking in exports")
+    traj_meta: bool = Field(default=False, description="include ratings (👍/👎) and run info in exports: a metadata field per line, for DPO / KTO")
+
     # the model router: before each chat turn laya (the decision model above) picks which listed model answers
     router_on: bool = Field(default=False, description="let the decision model pick the model for each chat turn")
     router_models: list[dict] = Field(default_factory=list, description='models to pick from: {model: "provider:model" (or a model name for the main provider), note: "what it is good at"}')

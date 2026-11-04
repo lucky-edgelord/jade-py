@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0
+
+Trajectories, as in Jade Vault 2.23.1.
+
+- **The trajectory log.** Every run is kept as the model saw it (system prompt, messages, tool calls and results, tools, token counts per call) in `<data>/trajectories`, in the app's record format. `traj_on` (default on) turns it off.
+- **Ratings and retry.** 👍/👎 under each reply in the dashboard, `/rate up|down|clear` in the REPL, `POST /v1/chats/{id}/rate {index?, rating}`, `jade.traj.rate`. ↻ (dashboard), `/retry`, `session.retry()` and `POST /v1/chats/{id}/retry` give a new answer to your last message; the old run stays in the log.
+- **Exports**, the same as the app's: `jade traj export` (also `GET /v1/trajectories/export` and Dashboard → Settings → Trajectory log) in OpenAI chat format (Unsloth, Axolotl, TRL) or ShareGPT (LLaMA-Factory), with the filters `clean`, `good`, `prefs` (finished runs, 👎 too: for DPO / KTO) and `all`, the model's thinking if asked, and `--meta`: a `metadata` field per line with the rating, outcome, model, provider, source, start time and per-call token counts. `jade traj stats`, `jade traj clear`.
+
 ## 0.10.0
 
 The model router, as in Jade Vault 2.23.

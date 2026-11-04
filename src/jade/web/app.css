@@ -239,3 +239,7 @@ body.kiosk #logoutBtn{display:none}
   .row-item{flex-wrap:wrap}
 }
 @media (min-width:761px){ #drawerBtn{display:none} }
+
+.rate-bar{display:flex;gap:4px;margin-top:4px;opacity:.55}.msg-ai:hover .rate-bar,.rate-bar:focus-within{opacity:1}
+.rate-bar button{background:none;border:1px solid transparent;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:13px;color:inherit;filter:grayscale(1)}
+.rate-bar button.on{border-color:var(--line,#2a4a3e);filter:none}.rate-bar button:hover{filter:none}

@@ -8,6 +8,8 @@ Type a message, or a command:
   /tools                the tools Jade has            /tool <name> {json}   run one yourself
   /memory               what she remembers            /context      what the prompt costs
   /system               the instructions she gets     /skill:<name> [text]  use a skill
+  /rate up|down|clear   rate her last reply 👍/👎     /retry        a new answer to your last message
+  /traj                 the trajectory log (fine-tuning data; `jade traj export` writes it)
   /exit                 leave (Ctrl-D works too)
 """
 from __future__ import annotations
@@ -186,6 +188,29 @@ class Repl:
             ms = estimate_tokens(self.s.messages)
             self.console.print(f"system prompt ~{estimate_tokens(sp)} tokens · {len(tools)} tools ~{td} · messages ~{ms} · window {st.num_ctx}"
                                + (f" · last prompt {self.s.meta.get('last_prompt_tokens')} (model's count)" if self.s.meta.get("last_prompt_tokens") else ""))
+        elif cmd == "rate":
+            from .traj import rate_message
+            v = {"up": 1, "+": 1, "+1": 1, "1": 1, "good": 1, "👍": 1, "down": -1, "-": -1, "-1": -1, "bad": -1, "👎": -1, "clear": None, "none": None}
+            if rest not in v:
+                self.console.print("[red]/rate up, /rate down or /rate clear[/]")
+                return True
+            try:
+                r = rate_message(self.s, None, v[rest])
+                self.console.print(f"[dim]rated {'👍' if r['rating'] == 1 else '👎' if r['rating'] == -1 else 'nothing'}{'' if r['trajectory'] else ' (this reply was not logged)'}[/]")
+            except ValueError as e:
+                self.console.print(f"[red]{e}[/]")
+        elif cmd == "retry":
+            try:
+                await self.show(self.s.retry())
+            except ValueError as e:
+                self.console.print(f"[red]{e}[/]")
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                self.s.cancel()
+                self.console.print("[yellow]stopped[/]")
+        elif cmd == "traj":
+            t = j.traj.stats()
+            self.console.print(f"{t['runs']} runs · {t['steps']} model calls · 👍 {t['good']} · 👎 {t['bad']} · {t['errors']} errors · {j.traj.folder}"
+                               + ("" if st.traj_on else " · logging is off (traj_on)") + "\n[dim]export: jade traj export --filter prefs --meta -o prefs.jsonl[/]")
         elif cmd.startswith("skill:"):
             name = cmd.split(":", 1)[1]
             try:

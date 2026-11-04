@@ -208,3 +208,39 @@ async def test_talk_mode_with_the_phone_voice(site, fake):
     ready = await page.evaluate("!!(window.Jade && window.Jade.ready)")
     assert ready or "could not load" in status, status
     assert not [e for e in errors if "WebGL" not in e], errors
+
+
+async def test_rate_retry_and_export_trajectories(site, fake):
+    """👎 a reply, ↻ retry, 👍 the new one: a DPO pair; the settings page exports it."""
+    jade, base, b = site
+    page, errors = await open_page(b, base, hash_="#token=tok")
+    await page.goto(base + "/ui/#token=tok")
+    await page.click("[data-r=chat]")
+    await page.wait_for_selector("#input")
+    fake.script = [{"content": "a weak answer"}]
+    await page.fill("#input", "rate me")
+    await page.click("#sendBtn")
+    await page.wait_for_selector(".msg-ai .md p:text('a weak answer')", timeout=15000)
+    await page.wait_for_selector(".rate-bar [data-rate='-1']")
+    await page.click(".rate-bar [data-rate='-1']")
+    await page.wait_for_selector(".rate-bar [data-rate='-1'].on")
+    assert [r["rating"] for r in jade.traj.all()] == [-1]
+    fake.script = [{"content": "a better answer"}]
+    await page.click(".rate-bar [data-retry]")
+    await page.wait_for_selector(".msg-ai .md p:text('a better answer')", timeout=15000)
+    await page.wait_for_function("!document.querySelector('.md.caret') && [...document.querySelectorAll('.msg-ai .md')].every(e => !/a weak answer/.test(e.textContent))")
+    await page.click(".rate-bar [data-rate='1']")
+    await page.wait_for_selector(".rate-bar [data-rate='1'].on")
+    assert [r["rating"] for r in jade.traj.all()] == [-1, 1]
+    # the settings page shows the log and downloads the export (with the ratings once traj_meta and prefs are set)
+    jade.settings.traj_meta, jade.settings.traj_filter = True, "prefs"
+    await page.goto(base + "/ui/#/settings")
+    await page.wait_for_function("/2 runs .*👍 1 · 👎 1/.test(document.querySelector('#trajStats')?.textContent || '')")
+    await page.evaluate("document.querySelector('#trajExport').closest('details').open = true")
+    async with page.expect_download() as dl:
+        await page.click("#trajExport")
+    text = Path(await (await dl.value).path()).read_text()
+    got = [json.loads(x) for x in text.splitlines()]
+    assert sorted(o["metadata"]["rating"] for o in got) == [-1, 1]
+    await shot(page, "trajectories")
+    assert not errors, errors

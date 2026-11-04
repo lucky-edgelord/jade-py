@@ -60,6 +60,8 @@ class Jade:
         self.router = Router(self)
         self.context = Context(self)
         self.sessions = SessionStore(settings.data_path / "chats")
+        from .traj import TrajStore
+        self.traj = TrajStore(self)                            # the trajectory log (fine-tuning exports with 👍/👎 ratings)
         self.approver: Approver | None = None
         self.prompt_extras: list = []
         self.notifiers: list[Callable[[str, str], Any]] = []   # notify(title, body) goes to each (the API streams them; the CLI prints)

@@ -254,6 +254,27 @@ approve = "risky"
 WEATHER_KEY = "…"
 ```
 
+### Trajectories: fine-tuning data with ratings
+
+Every run is logged as the model saw it (system prompt, messages, tool calls and results, tools, token counts) in
+`<data>/trajectories`, in the Jade Vault app's format. Rate replies 👍/👎 (dashboard, `/rate up|down` in the REPL,
+`POST /v1/chats/{id}/rate`, or `jade.traj.rate`) and get a second answer to the same message with ↻ (`/retry`,
+`session.retry()`, `POST /v1/chats/{id}/retry`). Export JSONL:
+
+```sh
+jade traj stats
+jade traj export -o sft.jsonl                              # finished runs minus 👎, OpenAI chat format
+jade traj export --filter prefs --meta -o prefs.jsonl      # 👎 too, with a metadata field: DPO / KTO
+jade traj export --format sharegpt                         # LLaMA-Factory
+```
+
+`--filter`: `clean` (finished runs minus 👎), `good` (only 👍), `prefs` (finished runs, 👎 too), `all` (errors too).
+`--meta` adds `metadata` to each line: `id`, `started`, `model`, `provider`, `source` (chat, heartbeat, schedule,
+curiosity), `outcome`, `rating` and per-call `steps`. 👎 a reply, ↻ retry, 👍 the better one: the two lines share
+their prompt, which is a preference pair. Defaults come from `traj_format`, `traj_filter`, `traj_thinking` and
+`traj_meta`; `traj_on = false` stops logging. The files are the same as the app's, so exports from both train
+together (for example with [jade-tune](https://github.com/lucky-edgelord/jade-autotuner)).
+
 ### Model router
 
 Before each chat turn the decision model (laya on Ollaya, Ollama 0.35+ or a fleet broker: the same

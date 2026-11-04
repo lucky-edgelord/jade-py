@@ -1,7 +1,7 @@
 # Jade (Python): the tutorial
 
 A walk through every part of jade-py, from the first chat to phones, flows and fleets. Each section stands alone, so
-read in order the first time and jump around after. Every Python example here was run against jade-py 0.10.0.
+read in order the first time and jump around after. Every Python example here was run against jade-py 0.11.0.
 
 **Contents**
 
@@ -18,6 +18,7 @@ read in order the first time and jump around after. Every Python example here wa
 11. [The built-in tools](#11-the-built-in-tools)
 12. [Thinking tools: think, delegate, decide](#12-thinking-tools-think-delegate-decide)
 13. [The model router](#13-the-model-router)
+    - [Trajectories and ratings](#trajectories-and-ratings-fine-tuning-data)
 14. [Automation: schedules, heartbeat, playbooks, flows, curiosity](#14-automation)
 15. [Backups](#15-backups)
 16. [MCP servers, SSH and the browser](#16-mcp-servers-ssh-and-the-browser)
@@ -432,6 +433,47 @@ router_models = [
   model (`session.route = False` does the same for your own sessions).
 
 It uses the same decision server as `decide`, so a Jade Fleet broker works too.
+
+### Trajectories and ratings (fine-tuning data)
+
+Every run is logged exactly as the model saw it, in the Jade Vault app's format, so you can fine-tune a model on
+your own conversations. Rate replies to say which ones were good:
+
+| Where | 👍 / 👎 | New answer to the same message |
+|---|---|---|
+| dashboard | the buttons under a reply | ↻ |
+| REPL | `/rate up`, `/rate down`, `/rate clear` | `/retry` |
+| Python | `traj.rate_message(s, None, 1)` | `async for ev in s.retry(): …` |
+| HTTP | `POST /v1/chats/{id}/rate {"rating": 1}` | `POST /v1/chats/{id}/retry` |
+
+```python
+from jade import traj
+
+s = jade.session()
+await s.ask("Write a haiku about rain")
+traj.rate_message(s, None, -1)              # 👎 the last reply
+async for ev in s.retry(): pass             # a new answer to the same message
+traj.rate_message(s, None, 1)               # 👍 the better one: a preference pair
+
+text = jade.traj.export(format="openai", filter="prefs", meta=True)   # JSONL
+print(jade.traj.stats())                    # runs, steps, good, bad, errors, bytes
+```
+
+From the shell:
+
+```sh
+jade traj stats
+jade traj export -o sft.jsonl                            # supervised fine-tuning: finished runs minus 👎
+jade traj export --filter prefs --meta -o prefs.jsonl    # DPO / KTO: 👎 runs too, with ratings
+jade traj export --format sharegpt --thinking            # LLaMA-Factory, with the model's thinking
+```
+
+Filters: `clean` (finished runs minus 👎, the default), `good` (only 👍), `prefs` (finished runs, 👎 too), `all`
+(errors too). `--meta` adds a `metadata` field to each line: `id`, `started`, `model`, `provider`, `source` (chat,
+heartbeat, schedule, curiosity), `outcome`, `rating` and per-call token counts in `steps`. The settings
+`traj_format`, `traj_filter`, `traj_thinking` and `traj_meta` set the defaults (also on the dashboard's Settings →
+Trajectory log, which has an Export button); `traj_on = false` stops logging. Runs are kept in
+`<data>/trajectories`, one JSON file each, and never leave this machine unless you export them.
 
 ## 14. Automation
 
