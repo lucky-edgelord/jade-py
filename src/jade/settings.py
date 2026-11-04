@@ -133,10 +133,25 @@ class Settings(BaseSettings):
     embed_model: str = "nomic-embed-text"
     embed_host: str = ""
 
-    # decisions (Ollaya)
+    # decisions: Ollaya, or Ollama 0.35+ (the same /v1/systemone API); the decision model is ollaya_model on either
+    decide_provider: Literal["ollaya", "ollama"] = Field(default="ollaya", description="the decision server: ollaya, or ollama (0.35 and newer)")
     ollaya_host: str = "http://localhost:11435"
     ollaya_model: str = ""
     ollaya_key: str = ""
+    decide_ollama_host: str = Field(default="", description="Ollama address for decisions (empty: host)")
+
+    # on-device models (the onnx and litert tools) and USB devices (the usb tool)
+    onnx_on: bool = True
+    onnx_providers: list[str] = Field(default_factory=list, description='ONNX Runtime execution providers in order, e.g. ["TensorrtExecutionProvider", "CUDAExecutionProvider"] (empty: the GPU ones it has, then the CPU)')
+    litert_on: bool = True
+    usb_on: bool = True
+    usb_allow: list[str] = Field(default_factory=list, description='USB devices Jade may open, as vendor:product in hex ("2341:0043") or a vendor ("2341"); empty: any')
+
+    # Jade Fleet: a jade-fleet broker (https://github.com/lucky-edgelord/jade-fleet) that holds the fleet's shared
+    # vault, memory search and the way to its models; `jade init --fleet URL --fleet-token TOKEN` points every model at it
+    fleet_url: str = Field(default="", description="the broker, e.g. http://optiplex:8765")
+    fleet_token: str = ""
+    fleet_device: str = Field(default="", description="this machine's name in the fleet (default: the host name)")
 
     # reasoning extras
     think_on: bool = True          # the think tool (tree of thoughts with verification)
@@ -167,6 +182,19 @@ class Settings(BaseSettings):
     stt_provider: str = Field(default="", description='speech to text for talk mode when a device has no recognizer of its own: a provider name (groq, openai, ollama…; empty = the chat provider)')
     stt_model: str = Field(default="", description="the transcription model, e.g. whisper-large-v3-turbo (Groq) or whisper-1 (OpenAI); empty = off")
     look_images: bool = Field(default=True, description="show pictures (camera, screenshots, look) to the model; off for models without vision")
+
+    @field_validator("usb_allow", "onnx_providers", mode="before")
+    @classmethod
+    def _split_list(cls, v):
+        return [x for x in re.split(r"[\s,;]+", v) if x] if isinstance(v, str) else v
+
+    def fleet_headers(self, url: str) -> dict[str, str]:
+        """The fleet token and device name, for a request to the fleet's broker (and only to it)."""
+        base = self.fleet_url.rstrip("/")
+        if not base or not self.fleet_token or not (str(url).rstrip("/") == base or str(url).startswith(base + "/")):
+            return {}
+        import socket
+        return {"Authorization": "Bearer " + self.fleet_token, "X-Jade-Device": self.fleet_device or socket.gethostname()}
 
     @field_validator("sentry_allow", mode="before")
     @classmethod

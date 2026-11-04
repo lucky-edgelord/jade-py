@@ -140,15 +140,19 @@ class Stepper:
         self.final = ""
         self._approved: set[str] = set()
         self._images: list[tuple[str, str]] = []
+        self._early: dict[str, tuple] = {}   # web calls started ahead of their turn: id -> (task, queue, ctx, arguments)
 
     # ---- control between moves
     def skip(self, call_id: str | None = None, reason: str = "skipped by the user") -> None:
         i = self._find(call_id)
         c = self.pending.pop(i)
+        self._drop_early(c.id)
         self.s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": f"Not run: {reason}."})
 
     def edit(self, call_id: str | None, arguments: dict) -> None:
-        self.pending[self._find(call_id)].arguments = arguments
+        c = self.pending[self._find(call_id)]
+        c.arguments = arguments
+        self._drop_early(c.id)
 
     def approve(self, call_id: str | None = None) -> None:
         self._approved.add(self.pending[self._find(call_id)].id)
@@ -273,6 +277,31 @@ class Stepper:
         self.done = True
         self.final = text
         self.pending = []
+        for cid in list(self._early):
+            self._drop_early(cid)
+
+    # ---- web calls asked for together run at the same time (results still go back in the order the model asked)
+    PARALLEL = frozenset({"web_search", "web_fetch"})
+
+    def _needs_approval(self, c: ToolCall) -> bool:
+        st, t = self.jade.settings, self.jade.tools.get(c.name)
+        return (st.approve == "all" or (st.approve == "risky" and t is not None and t.risky)) and c.id not in self._approved
+
+    def _start_early(self, first: ToolCall) -> None:
+        if first.name not in self.PARALLEL:
+            return
+        s = self.s
+        for c in [first] + self.pending:
+            if c.name not in self.PARALLEL or c.id in self._early or self._needs_approval(c) or (s.allow_tools is not None and c.name not in s.allow_tools):
+                continue
+            q: asyncio.Queue[str] = asyncio.Queue()
+            ctx = ToolContext(self.jade, s, c.id, emit=q.put_nowait)
+            self._early[c.id] = (asyncio.create_task(self.jade.tools.call(c.name, c.arguments, ctx)), q, ctx, json.dumps(c.arguments, sort_keys=True, default=str))
+
+    def _drop_early(self, cid: str) -> None:
+        e = self._early.pop(cid, None)
+        if e and not e[0].done():
+            e[0].cancel()
 
     # ---- a tool call
     async def _run_tool(self, c: ToolCall) -> AsyncIterator[E.Event]:
@@ -292,9 +321,16 @@ class Stepper:
                 s.messages.append({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg})
                 yield E.ToolEnd(c.id, c.name, msg, error=True, skipped=True)
                 return
-        q: asyncio.Queue[str] = asyncio.Queue()
-        ctx = ToolContext(jade, s, c.id, emit=q.put_nowait)
-        task = asyncio.create_task(jade.tools.call(c.name, c.arguments, ctx))
+        self._start_early(c)
+        early = self._early.pop(c.id, None)
+        if early and early[3] == json.dumps(c.arguments, sort_keys=True, default=str):
+            task, q, ctx = early[0], early[1], early[2]
+        else:
+            if early and not early[0].done():
+                early[0].cancel()
+            q = asyncio.Queue()
+            ctx = ToolContext(jade, s, c.id, emit=q.put_nowait)
+            task = asyncio.create_task(jade.tools.call(c.name, c.arguments, ctx))
         while not task.done():
             try:
                 line = await asyncio.wait_for(q.get(), 0.1)
@@ -302,6 +338,8 @@ class Stepper:
             except asyncio.TimeoutError:
                 if s._cancel and not task.done():
                     task.cancel()
+                    for cid in list(self._early):
+                        self._drop_early(cid)
         while not q.empty():
             yield E.ToolProgress(c.id, c.name, q.get_nowait())
         self._images.extend(ctx.images)

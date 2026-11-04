@@ -19,7 +19,7 @@ Use her five ways:
 
 ```sh
 pip install jade-vault                 # Python 3.11+
-pip install "jade-vault[all]"          # + MCP, SSH, Discord, browser
+pip install "jade-vault[all]"          # + MCP, SSH, Discord, browser, ONNX / LiteRT, USB
 jade init ~/JadeVault --model qwen3:8b # vault with the starter notes and skills, and ~/.config/jade/config.toml
 jade                                   # chat
 ```
@@ -27,6 +27,9 @@ jade                                   # chat
 Models: Ollama (default, `host`), Ollama Cloud, llama.cpp, LM Studio, vLLM, OpenAI, Groq, OpenRouter, DeepSeek,
 Mistral, Gemini, Together, or any OpenAI-compatible URL (`provider = "custom"`, `base_url`). `fallbacks` lists
 others to try when the first cannot be reached, e.g. `["groq:llama-3.3-70b-versatile"]`.
+
+In a [Jade Fleet](https://github.com/lucky-edgelord/jade-fleet), point her at the broker instead:
+`jade init ~/JadeVault --fleet http://optiplex:8765 --fleet-token TOKEN` (see [Jade Fleet](#jade-fleet)).
 
 ## Library
 
@@ -176,8 +179,28 @@ cache keeps working).
 Reasoning: **think** (a tree of thoughts where every line is checked by something that can say no: JavaScript run
 in a read-only sandbox, a shell command, a file check, a rubric or a judge; the best verified line wins; trees and
 episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and read-only tools unless `write: true`,
-returning one short report), and **decide** (the local Ollaya decision model: calibrated probabilities for triage,
-scores and yes/no; set `ollaya_host` and `ollaya_model`).
+returning one short report), and **decide** (the local decision model: calibrated probabilities for triage,
+scores and yes/no; set `ollaya_model`, and `decide_provider = "ollaya"` with `ollaya_host`, or `"ollama"` for
+Ollama 0.35 and newer, which serves the same `/v1/systemone` API, at `decide_ollama_host` or `host`).
+
+When the model asks for several `web_search` / `web_fetch` calls in one round they run at the same time; results
+go back in the order it asked (in step mode, a call you edit or skip has its early run dropped).
+
+**Models on this machine**: **onnx** runs any `.onnx` model with ONNX Runtime, on the GPU when there is one (CUDA,
+TensorRT, ROCm, DirectML, CoreML; `onnx_providers` sets the order) else the CPU, and **litert** runs `.tflite`
+models (LiteRT: `ai-edge-litert`, or `tflite-runtime`). The same tools as the app: `load` from the vault or a URL
+(saved to `/models`), `run` with numbers, nested lists, vault `.json` / `.f32` files or pictures (`{image: path}`,
+resized and normalised for the model), each output summarised with the top 5 (and labels from a file), big outputs
+saved to `/models/out`; quantized `.tflite` outputs come back as real numbers. A model file is checked first: an
+error page, a JSON error or a git-LFS pointer saved under a model's name is named for what it is, a download that
+comes back as one is not saved, and downloading the same model again reuses the file. `pip install
+"jade-vault[ml]"` (on a Jetson, NVIDIA's onnxruntime-gpu wheel for its JetPack).
+
+**USB**: the **usb** tool (PyUSB and libusb, `pip install "jade-vault[usb]"`) talks to devices plugged into this
+machine, with the app's actions: list, request, open/close, claim/release, control and bulk/interrupt transfers in
+hex or text, saving what comes back. `usb_allow` (vendor:product or vendor, in hex) limits which devices she may
+open; she cannot change it, and the tool asks first when `approve = "risky"`. On Linux, a udev rule gives the
+user access, e.g. `SUBSYSTEM=="usb", ATTR{idVendor}=="2341", MODE="0660", GROUP="plugdev"`.
 
 **MCP** servers go in `/Jade/mcp.json` (the app's format: `url` + `headers`, or here also `command` + `args` for
 a local server). Each tool is `mcp__<server>__<tool>`, exposed `direct` (always offered), `deferred` (loaded by the
@@ -231,13 +254,32 @@ approve = "risky"
 WEATHER_KEY = "…"
 ```
 
+## Jade Fleet
+
+A [jade-fleet](https://github.com/lucky-edgelord/jade-fleet) broker holds a fleet's shared vault, its memory search
+and the way to its models (chat on llama-server, embeddings and decisions on Ollama / Ollaya, vision on the DLA
+cores). jade-py joins it as one more member:
+
+```sh
+jade init ~/JadeVault --fleet http://optiplex:8765 --fleet-token TOKEN --device lab-pc
+```
+
+This sets `fleet_url`, `fleet_token` and `fleet_device`, and points chat (`provider = "custom"`, the broker's
+`/v1`), embeddings and Ollama (`/ollama`) and decisions (`/v1/systemone`) at the broker. Requests to the broker
+carry the token and this machine's name; nothing else is ever sent the token. Two tools come with it:
+**vault_search** (meaning-based search over every device's notes and memories, on the broker's index) and
+**vision** (`detect` with YOLO, `classify` with MobileNet, on a vault picture). To work on the shared vault
+itself, run jade-py on the broker's machine with `vault` set to the broker's vault folder; elsewhere her vault is
+her own folder.
+
 ## Status
 
 Done: the core agent, tools, memory, skills, the REPL, the API, step mode, search by meaning, the journal, chat
 history, schedules, the heartbeat, playbooks, flows, curiosity, backups, think, delegate, decide, MCP, SSH, the
 browser, Vector and Discord, and through Jade Link: phone and screen control, the senses, Sentry, talk mode and kiosk
-mode, with the dashboard in the app's look. Not here: running models on the phone itself (LiteRT), and on-device
-vault storage (the vault lives with jade-py).
+mode, with the dashboard in the app's look; ONNX and LiteRT models and USB devices on the machine jade-py runs on,
+decisions from Ollaya or Ollama, and Jade Fleet. Not here: running models on the phone itself (the Jade Vault app
+does that), and a vault kept remotely on the fleet broker (run jade-py on the broker's machine to share it).
 
 ## Tests
 

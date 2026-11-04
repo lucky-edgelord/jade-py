@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0
+
+Caught up with Jade Vault 2.18-2.22.
+
+- **Decisions from Ollama too.** `decide_provider`: `ollaya` (default) or `ollama` (0.35 and newer, the same `/v1/systemone` API) at `decide_ollama_host` (empty: `host`). The decide tool, flow Decide steps, `jade.decide` and think's judge use whichever is chosen.
+- **Web calls asked for together run at the same time.** Several `web_search` / `web_fetch` calls in one round start together; results are recorded in the order the model asked. In step mode, editing or skipping a call drops its early run.
+- **The onnx tool**: ONNX Runtime on this machine's GPU (CUDA, TensorRT, ROCm, DirectML, CoreML; `onnx_providers`) or CPU: status, load (vault path or URL, saved to `/models`), run (numbers, nested lists, `.json` / `.f32` files, pictures), info, unload; outputs summarised with the top 5 and labels, big ones saved to `/models/out`.
+- **The litert tool**: `.tflite` models through LiteRT (`ai-edge-litert`, or `tflite-runtime`), quantized models included (outputs dequantized, `raw_output` keeps the integers).
+- **Model files are checked before loading**: an XML or HTML error page, a JSON error, a git-LFS pointer or a `.tflite` without its `TFL3` header is named for what it is; a download that comes back as one is not saved; the same model downloaded again reuses the file.
+- **The usb tool**: devices plugged into this machine through PyUSB (list, request, open/close, claim/release, control and bulk/interrupt transfers, saving what comes back), limited by `usb_allow`, asking first when `approve = "risky"`.
+- **Jade Fleet**: `fleet_url`, `fleet_token`, `fleet_device`; `jade init --fleet URL --fleet-token TOKEN` points chat, embeddings and decisions at a jade-fleet broker, whose requests carry the token (and only those); the **vault_search** and **vision** tools.
+- Settings page: the new settings, in "Embeddings and decisions", "On-device models and USB" and "Jade Fleet". The fleet token is kept out of backups.
+- Fix: a note that disappears while the vault is being indexed, or cannot be read (a broken link), no longer breaks the link and tag index.
+- Fix: after one server stopped in a process (`create_app` used again, as in tests or an embedding app), the next one's event streams (`/v1/events`: approvals, notifications, talk mode) closed at once; sse-starlette's process-wide shutdown flag is now reset when the API starts.
+- Test: the dashboard-approvals test waits for the event stream instead of a fixed pause.
+
 ## 0.8.0
 
 - Phones and tablets, through the new **Jade Link** Android app (android/, built without the Android SDK like the app): it calls in to `jade serve` (long-poll, works on mobile data), or listens and jade-py calls it, or both. Several at once (tested with four): tools take `phone` = a name, several, or `all`, and run on each at the same time.

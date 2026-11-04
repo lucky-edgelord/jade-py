@@ -399,7 +399,7 @@
   }
  },
  "decide": {
-  "description": "Ask the local Ollaya decision model to judge a piece of text. Returns calibrated probabilities, not prose. Use for triage, routing, classification, severity scores and yes/no checks (e.g. \"is this test output a pass?\", \"which module does this stack trace point to?\").",
+  "description": "Ask the local decision model (Ollaya, or Ollama 0.35+) to judge a piece of text. Returns calibrated probabilities, not prose. Use for triage, routing, classification, severity scores and yes/no checks (e.g. \"is this test output a pass?\", \"which module does this stack trace point to?\").",
   "parameters": {
    "type": "object",
    "properties": {

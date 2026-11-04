@@ -72,6 +72,11 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app):
+        try:   # sse-starlette keeps one "shutting down" flag per process: a server stopped earlier in this process would end every event stream at once
+            from sse_starlette.sse import AppStatus
+            AppStatus.should_exit = False
+        except Exception:  # noqa: BLE001
+            pass
         jade.notifiers.append(on_notify)
         own_approver = jade.approver is None
         if own_approver:

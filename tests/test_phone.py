@@ -273,10 +273,12 @@ async def test_approvals_go_to_the_dashboard(served):
     jade.settings.approve = "risky"
     h = {"Authorization": "Bearer tok"}
     got = []
+    connected = asyncio.Event()
 
     async def listen():
         async with httpx.AsyncClient(base_url=base, headers=h, timeout=30) as c:
             async with c.stream("GET", "/v1/events") as r:
+                connected.set()   # the dashboard's event stream is open: approvals go to it
                 ev = None
                 async for line in r.aiter_lines():
                     if line.startswith("event:"):
@@ -286,7 +288,7 @@ async def test_approvals_go_to_the_dashboard(served):
                         await c.post(f"/v1/approvals/{got[-1]['id']}", json={"allow": True})
                         return
     lt = asyncio.create_task(listen())
-    await asyncio.sleep(0.4)
+    await asyncio.wait_for(connected.wait(), 10)
     assert await jade.ask_approval(ToolCall("bash", {"command": "ls"}), jade.tools.get("bash")) is True
     await lt
     assert got[0]["tool"] == "bash" and got[0]["arguments"] == {"command": "ls"}

@@ -48,10 +48,12 @@ def _one(settings: Settings, provider: str, model: str) -> Provider:
     if provider in ("ollama", "ollama-cloud"):
         host = "https://ollama.com" if provider == "ollama-cloud" else settings.host
         key = settings.ollama_key or (settings.api_key if provider == settings.provider else "")
-        return OllamaProvider(host, model, api_key=key if provider == "ollama-cloud" else "", num_ctx=settings.num_ctx, temperature=settings.temperature,
-                              think=settings.think, keep_alive=settings.keep_alive, timeout=settings.request_timeout)
+        p = OllamaProvider(host, model, api_key=key if provider == "ollama-cloud" else "", num_ctx=settings.num_ctx, temperature=settings.temperature,
+                           think=settings.think, keep_alive=settings.keep_alive, timeout=settings.request_timeout)
+        p.headers.update(settings.fleet_headers(host))   # a fleet broker in front of Ollama wants the fleet token
+        return p
     base, key = settings.openai_base_and_key(provider)
-    return OpenAIProvider(base, model, api_key=key, name=provider, temperature=settings.temperature, timeout=settings.request_timeout)
+    return OpenAIProvider(base, model, api_key=key, name=provider, temperature=settings.temperature, timeout=settings.request_timeout, headers=settings.fleet_headers(base))
 
 
 def make_provider(settings: Settings) -> Provider:

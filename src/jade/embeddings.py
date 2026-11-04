@@ -127,7 +127,7 @@ class Embeddings:
             if ollama:
                 base = (st.embed_host or st.host).rstrip("/")
                 try:
-                    r = await c.post(base + "/api/embed", json={"model": self.model_name, "input": inp, "truncate": True})
+                    r = await c.post(base + "/api/embed", json={"model": self.model_name, "input": inp, "truncate": True}, headers=st.fleet_headers(base))
                 except httpx.HTTPError as e:
                     raise ToolError(f"could not reach Ollama at {base} for embeddings: {e}") from e
                 if r.status_code == 404 and "not found" in r.text:
@@ -137,7 +137,7 @@ class Embeddings:
                 vecs = r.json().get("embeddings") or []
             else:
                 base, key = st.openai_base_and_key()
-                r = await c.post(base + "/embeddings", json={"model": self.model_name, "input": inp}, headers={"Authorization": f"Bearer {key}"} if key else {})
+                r = await c.post(base + "/embeddings", json={"model": self.model_name, "input": inp}, headers={**({"Authorization": f"Bearer {key}"} if key else {}), **st.fleet_headers(base)})
                 if r.status_code != 200:
                     raise ToolError(f"embeddings failed (HTTP {r.status_code}: {r.text[:200]})")
                 vecs = [d["embedding"] for d in sorted(r.json().get("data", []), key=lambda d: d.get("index", 0))]

@@ -30,11 +30,24 @@ if TYPE_CHECKING:
     from .core import Jade
 
 
-# ================================================================ decide (Ollaya)
+# ================================================================ decide (Ollaya, or Ollama 0.35+)
+def decide_server(st) -> tuple[str, str, dict]:
+    """(name, base URL, headers) of the decision server: Ollaya, or Ollama (same /v1/systemone API)."""
+    if st.decide_provider == "ollama":
+        base = (st.decide_ollama_host or st.host or "http://localhost:11434").rstrip("/")
+        headers = {"Authorization": "Bearer " + st.ollama_key} if st.ollama_key and base.startswith("https://ollama.com") else {}
+        name = "Ollama"
+    else:
+        base = (st.ollaya_host or "http://localhost:11435").rstrip("/")
+        headers = {"Authorization": "Bearer " + st.ollaya_key} if st.ollaya_key else {}
+        name = "Ollaya"
+    return name, base, {**headers, **st.fleet_headers(base)}
+
+
 async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: str = "choice", options=None) -> dict:   # noqa: A002
     st = jade.settings
     if not st.ollaya_model:
-        raise ToolError("No Ollaya model is set (ollaya_model in the config).")
+        raise ToolError("No decision model is set (ollaya_model in the config).")
     t = "noul" if type == "yesno" else type
     q: dict = {"type": t, "instructions": str(question or "")}
     opts = [x.strip() for x in (options if isinstance(options, list) else str(options).split("\n") if isinstance(options, str) else []) if str(x).strip()]
@@ -50,23 +63,25 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
     elif t != "noul":
         raise ToolError("type must be choice, score or yesno")
     body = {"model": st.ollaya_model, "state": state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, default=str), "questions": {"q": q}}
-    base = (st.ollaya_host or "http://localhost:11435").rstrip("/")
-    headers = {"Authorization": "Bearer " + st.ollaya_key} if st.ollaya_key else {}
+    name, base, headers = decide_server(st)
     try:
         async with httpx.AsyncClient(timeout=60) as h:
             r = await h.post(base + "/v1/systemone", json=body, headers=headers)
     except httpx.HTTPError as e:
-        raise ToolError(f'could not reach Ollaya at {base}. Is "ollaya serve" running? ({e})') from None
+        hint = '"ollaya serve"' if name == "Ollaya" else "Ollama 0.35 or newer"
+        raise ToolError(f"could not reach {name} at {base}. Is {hint} running? ({e})") from None
     if r.status_code >= 400:
         try:
             m = r.json().get("error") or r.text
         except ValueError:
             m = r.text
-        raise ToolError(f"Ollaya said {r.status_code}: {str(m)[:300]}")
+        if name == "Ollama" and r.status_code == 404 and "systemone" not in str(m):
+            m = f"{m} (decisions need Ollama 0.35 or newer)"
+        raise ToolError(f"{name} said {r.status_code}: {str(m)[:300]}")
     j = r.json()
     ans = (j.get("answers") or {}).get("q")
     if not ans:
-        raise ToolError("Ollaya returned no answer")
+        raise ToolError(f"{name} returned no answer")
     pr = ans.get("probabilities")
     probs = {str(i): float(v) for i, v in enumerate(pr)} if isinstance(pr, list) else {k: float(v) for k, v in (pr or {}).items()}
     out = {"type": "yesno" if type == "yesno" else t, "confidence": float(ans["confidence"]) if ans.get("confidence") is not None else None, "probabilities": probs, "model": j.get("model") or st.ollaya_model}
@@ -914,7 +929,7 @@ def setup(jade: "Jade") -> None:
     jade.think = Think(jade)
     jade.tools.add(Tool("decide", S["decide"]["description"], S["decide"]["parameters"], decide_tool, core=False, enabled=lambda j: bool(j.settings.ollaya_model),
                         hints="decide classify triage score yes no probability judge ollaya route severity",
-                        summary="decide: the local Ollaya decision model classifies, scores or answers yes/no about a text (probabilities)"))
+                        summary="decide: the decision model (Ollaya or Ollama) classifies, scores or answers yes/no about a text (probabilities)"))
     jade.tools.add(Tool("delegate", S["delegate"]["description"], S["delegate"]["parameters"], delegate_tool, core=False, enabled=lambda j: j.settings.delegate_on,
                         hints="delegate sub-agent subagent side job research read many pages compare files summarise",
                         summary="delegate: hand a self-contained side job to a sub-agent with a clean context; it returns a short report"))

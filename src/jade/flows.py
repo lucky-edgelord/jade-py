@@ -41,7 +41,7 @@ FLOW_TYPES: dict[str, dict] = {
            "fields": [("code", "Code", "code", "const notes = fs.readdirSync('/projects');\nreturn { count: notes.length };", True), ("timeout", "Time limit (seconds, default 60)", "num", "", False)]},
     "shell": {"label": "Shell", "help": "Runs a command line in the real shell (in the vault folder). Output: {code, stdout, stderr}. A non-zero exit fails the step unless \"allowFail\" is on.",
               "fields": [("command", "Command", "tpl", "ls projects | wc -l", True), ("cwd", "Folder in the vault (default /)", "tpl", "/", False), ("allowFail", "Allow failure", "bool", "", False), ("timeout", "Time limit (seconds, default 60)", "num", "", False)]},
-    "decide": {"label": "Decide", "help": "Ollaya decision model: calibrated probabilities. Output: {result, choice|score|answer, confidence, probabilities}.",
+    "decide": {"label": "Decide", "help": "The decision model (Ollaya or Ollama): calibrated probabilities. Output: {result, choice|score|answer, confidence, probabilities}.",
                "fields": [("state", "Text to judge", "area", "{{ $json }}", True), ("question", "Question", "tpl", "Is this urgent?", True), ("kind", "Type", "sel:choice|score|yesno", "", False), ("options", "Options (one per line)", "lines", "urgent\nnormal\nlow", False)]},
     "llm": {"label": "Ask AI", "help": "One answer from the chat model (no tools, no chat). Output: the text, or parsed JSON when \"json\" is on.",
             "fields": [("prompt", "Prompt", "area", "Summarise in 3 bullets:\n{{ $json }}", True), ("system", "System prompt", "area", "", False), ("json", "Expect JSON back", "bool", "", False)]},
@@ -945,7 +945,7 @@ Example:
 
 
 FLOW_SPEC = {
-    "description": "Automation flows (like n8n): a list of steps that run in order — Jade's tools, JavaScript, shell commands, Ollaya decisions, AI answers, a full Jade chat turn, notes, playbooks, if / switch / for-each, wait, notify, other flows. A flow runs by hand, on a schedule, when a note changes, from scripts (jade.flow), from `jade flow run` or over the API. Actions: help (the JSON format and every step type: read it before you create or change a flow), list, get, create, update, delete, run, runs, enable, disable.",
+    "description": "Automation flows (like n8n): a list of steps that run in order — Jade's tools, JavaScript, shell commands, decisions (Ollaya or Ollama), AI answers, a full Jade chat turn, notes, playbooks, if / switch / for-each, wait, notify, other flows. A flow runs by hand, on a schedule, when a note changes, from scripts (jade.flow), from `jade flow run` or over the API. Actions: help (the JSON format and every step type: read it before you create or change a flow), list, get, create, update, delete, run, runs, enable, disable.",
     "parameters": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["help", "list", "get", "create", "update", "delete", "run", "runs", "enable", "disable"]},
         "name": {"type": "string", "description": "The flow's name (get, update, delete, run, runs, enable, disable)"},

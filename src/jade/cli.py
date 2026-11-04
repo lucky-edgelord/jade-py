@@ -139,14 +139,22 @@ def chats(limit: int = 20):
 
 @app.command()
 def init(vault: Path = typer.Argument(Path.home() / "JadeVault"), model: str = typer.Option("qwen3:8b"), provider: str = typer.Option("ollama"),
-         host: str = typer.Option("http://localhost:11434")):
+         host: str = typer.Option("http://localhost:11434"),
+         fleet: str = typer.Option("", help="a Jade Fleet broker (http://optiplex:8765): chat, embeddings and decisions go through it"),
+         fleet_token: str = typer.Option("", help="the fleet token (on the broker: sudo -u jade jade-fleet token)"),
+         device: str = typer.Option("", help="this machine's name in the fleet (default: the host name)")):
     """Make a vault (with the starter notes and skills) and a config file."""
     from .settings import Settings
     from .vault import Vault
     v = Vault(vault)
     s = Settings(vault=v.root, model=model, provider=provider, host=host)
+    if fleet:
+        if not fleet_token:
+            raise typer.BadParameter("--fleet needs --fleet-token")
+        from .fleet import fleet_preset
+        fleet_preset(s, fleet, fleet_token, device)
     p = s.save()
-    typer.echo(f"vault: {v.root}\nconfig: {p}\nNow run: jade")
+    typer.echo(f"vault: {v.root}\nconfig: {p}" + (f"\nfleet: {s.fleet_url} (chat, embeddings and decisions go through the broker)" if fleet else "") + "\nNow run: jade")
 
 
 flow_app = typer.Typer(help="Automation flows (/Jade/Flows/*.flow.json).", no_args_is_help=True)

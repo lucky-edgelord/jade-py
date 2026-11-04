@@ -236,8 +236,11 @@ class Vault:
         return [p for p in self.walk("/", notes_only=True) if not p.lower().startswith("/jade/skills/")]
 
     def _parse(self, p: str) -> _Parsed:
-        st = self.real(p).stat()
-        sig = (st.st_size, st.st_mtime_ns)
+        try:
+            st = self.real(p).stat()
+            sig = (st.st_size, st.st_mtime_ns)
+        except OSError:   # gone since it was listed, or unreadable (a broken link): no links, never an error
+            return _Parsed(None, [], [], set(), 0)
         cached = self._parsed.get(p)
         if cached and cached.sig == sig:
             return cached
