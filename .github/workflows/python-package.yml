@@ -1,5 +1,5 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
+# Lint and test jade-py on every push and pull request to main: the Python suite (with a fake model server, real
+# Chromium for the dashboard, a JDK for the Jade Link tests) on Python 3.11 to 3.13, and Jade Link's JVM tests.
 
 name: Python package
 
@@ -10,31 +10,41 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.11", "3.12", "3.13"]
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.playwright
 
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+        cache: pip
+    - name: Set up Java (Jade Link tests)
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "17"
+    - name: Install jade-py with every extra
       run: |
         python -m pip install --upgrade pip
-        python -m pip install flake8 pytest
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        python -m pip install -e ".[dev,all]"
+    - name: Install Chromium (dashboard and browser tests)
+      run: python -m playwright install --with-deps chromium
     - name: Lint with flake8
       run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        # stop the build on syntax errors or undefined names
+        flake8 src tests --count --select=E9,F63,F7,F82 --show-source --statistics
+        # everything else is reported, not enforced
+        flake8 src tests --count --exit-zero --max-complexity=10 --max-line-length=160 --statistics
     - name: Test with pytest
-      run: |
-        pytest
+      run: pytest -q
+    - name: Jade Link JVM tests (Sentry engine, casting)
+      if: matrix.python-version == '3.13'
+      run: bash android/test/run.sh
