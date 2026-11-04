@@ -711,7 +711,14 @@ PAGES.schedules = async v => {
 /* ---------------- Sentry ---------------- */
 const SY_PATH = '/Jade/Config/Sentry.json';
 async function sentryFile() { try { return JSON.parse((await api('/v1/vault/file?path=' + encodeURIComponent(SY_PATH))).content); } catch { return { enabled: false, systems: {}, triggers: [] }; } }
-async function sentrySave(fn) { const c = await sentryFile(); fn(c); await api('/v1/vault/file', { method: 'PUT', body: { path: SY_PATH, content: JSON.stringify(c, null, 2) + '\n' } }); }
+// one change at a time: two quick changes (tick a device, then switch a system there) each read the file and write it
+// back, so run together the second would write over the first
+let sentryQ = Promise.resolve();
+function sentrySave(fn) {
+  const run = sentryQ.then(async () => { const c = await sentryFile(); fn(c); await api('/v1/vault/file', { method: 'PUT', body: { path: SY_PATH, content: JSON.stringify(c, null, 2) + '\n' } }); });
+  sentryQ = run.catch(() => {});
+  return run;
+}
 PAGES.sentry = async v => {
   const [s, ph] = await Promise.all([api('/v1/sentry'), api('/v1/phones')]);
   const cfg = s.rules || {}; const devs = cfg.phones || []; const linked = ph.phones.map(p => p.name);
