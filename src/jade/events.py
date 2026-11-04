@@ -78,6 +78,18 @@ class Done(Event):
 
 
 @dataclass
+class Routed(Event):
+    """The model router picked the model for this turn (error set: it could not, and the main model answers)."""
+    provider: str = ""
+    model: str = ""
+    note: str = ""
+    confidence: float | None = None
+    ms: int = 0
+    error: str = ""
+    type: str = field(default="routed", init=False)
+
+
+@dataclass
 class Error(Event):
     message: str = ""
     type: str = field(default="error", init=False)

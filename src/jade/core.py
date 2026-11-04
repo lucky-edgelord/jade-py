@@ -52,6 +52,7 @@ class Jade:
         self.memory.ensure()
         self.skills = Skills(self.vault)
         self.provider = provider or make_provider(settings)
+        self._routed: dict = {}                                # providers the model router picked, by (provider, model)
         self.tools = Registry()
         self.specs = tool_specs()
         builtin.register(self.tools, self.specs)
@@ -206,6 +207,22 @@ class Jade:
         if getattr(self, "flows", None):
             await self.flows.aclose()
         await self.provider.aclose()
+        for p in self._routed.values():
+            await p.aclose()
+
+    def routed_provider(self, provider: str, model: str) -> Provider:
+        """The provider for a model the router picked; if it cannot be reached, the main provider (and its fallbacks)
+        answers instead."""
+        st = self.settings
+        if provider == st.provider and model == st.model:
+            return self.provider
+        from .providers import FallbackProvider, _one
+        key = (provider, model, st.base_url, st.api_key, st.host)
+        p = self._routed.get(key)
+        if p is None:
+            p = self._routed[key] = _RoutedProvider(FallbackProvider([_one(st, provider, model), self.provider]))
+        p.inner.providers[-1] = self.provider     # the dashboard may have rebuilt the main provider since
+        return p
 
     async def __aenter__(self):
         return self
@@ -215,3 +232,20 @@ class Jade:
 
     def __repr__(self) -> str:
         return f"<Jade vault={self.vault.root} model={self.settings.provider}:{self.settings.model}>"
+
+
+class _RoutedProvider:
+    """Wraps a routed provider chain so closing it does not close the main provider it falls back to."""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.name, self.model = inner.name, inner.model
+
+    def chat(self, *a, **k):
+        return self.inner.chat(*a, **k)
+
+    async def models(self):
+        return await self.inner.models()
+
+    async def aclose(self):
+        await self.inner.providers[0].aclose()

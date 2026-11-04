@@ -79,6 +79,9 @@ class Repl:
                 elif isinstance(ev, E.ToolEnd):
                     first = ev.output.strip().split("\n")[0][:160]
                     self.console.print(f"  [{'red' if ev.error else 'dim'}]{'✗' if ev.error else '✓'} {first}{' …' if len(ev.output) > len(first) else ''}[/] [dim]{ev.ms} ms[/]")
+                elif isinstance(ev, E.Routed):
+                    conf = f" · {ev.confidence:.0%}" if ev.confidence is not None else ""
+                    self.console.print(f"[dim]↳ main model ({ev.error.removeprefix('router: ')})[/]" if ev.error else f"[dim]↳ {ev.provider}:{ev.model}{conf}[/]")
                 elif isinstance(ev, E.Compacted):
                     self.console.print(f"[dim]  (summarised {ev.dropped} older messages to make room)[/]")
                 elif isinstance(ev, E.Error):

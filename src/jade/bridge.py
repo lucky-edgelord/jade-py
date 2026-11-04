@@ -40,6 +40,7 @@ async def run_agent_prompt(jade: "Jade", message: str, chat: str = "new", key: s
         if chat == "same" and key:
             jade.state.setdefault("agent_chats", {})[key] = s.id
             jade.save_state()
+    s.route = False   # flows and scripts keep the main model
     reply = await s.ask(message)
     return {"reply": reply, "chat": s.id}
 

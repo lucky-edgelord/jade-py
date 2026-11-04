@@ -395,6 +395,7 @@ class Curiosity:
                 s.title = "✦ Curiosity"
                 j.state["cu_session"] = s.id
             s.allow_tools = self.allowed()
+            s.route = False
             s.max_steps = min(j.settings.max_steps, 14)
             before = len(s.messages)
             async with j.background:

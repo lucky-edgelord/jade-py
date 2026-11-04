@@ -254,6 +254,28 @@ approve = "risky"
 WEATHER_KEY = "…"
 ```
 
+### Model router
+
+Before each chat turn the decision model (laya on Ollaya, Ollama 0.35+ or a fleet broker: the same
+`decide_provider` / `ollaya_host` the decide tool uses) reads the message and picks which of your models answers it.
+Each model gets a note saying what it is good at; laya chooses between the notes.
+
+```toml
+router_on = true
+router_models = [
+  {model = "ollama:qwen3:8b", note = "quick everyday chat, short answers, simple lookups"},
+  {model = "groq:openai/gpt-oss-120b", note = "coding, long documents, hard multi-step reasoning"},
+]
+# router_decider = "laya"         # default: ollaya_model
+# router_min_confidence = 0.6     # below this the main model answers
+```
+
+`model` is `provider:model` (other providers take their key from the usual environment variable, e.g.
+`GROQ_API_KEY`) or a bare model name for the main provider. The pick holds for the whole turn, tool rounds included;
+the turn's events start with a `routed` event (provider, model, note, confidence). If laya cannot be reached, is
+unsure, or the picked model fails, the main model answers. Only chats are routed; background turns (heartbeat,
+curiosity, bridges with other people) keep the main model.
+
 ## Jade Fleet
 
 A [jade-fleet](https://github.com/lucky-edgelord/jade-fleet) broker holds a fleet's shared vault, its memory search

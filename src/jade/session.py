@@ -46,6 +46,7 @@ class Session:
     _busy: bool = field(default=False, repr=False)
     allow_tools: set | None = field(default=None, repr=False)   # only these tools this run (curiosity wake-ups); not saved
     max_steps: int | None = field(default=None, repr=False)     # per-chat limit below settings.max_steps; not saved
+    route: bool = field(default=True, repr=False)              # let the model router pick the model (off for background turns); not saved
     prompt_override: Any = field(default=None, repr=False)     # fn(jade, session) -> system prompt (bridge chats with people who are not the owner)
 
     # ---------------------------------------------------------------- persistence
@@ -138,6 +139,7 @@ class Stepper:
         self.steps = 0
         self.done = False
         self.final = ""
+        self.provider = None      # the model the router picked for this turn (None: the main one)
         self._approved: set[str] = set()
         self._images: list[tuple[str, str]] = []
         self._early: dict[str, tuple] = {}   # web calls started ahead of their turn: id -> (task, queue, ctx, arguments)
@@ -216,9 +218,20 @@ class Stepper:
         if compacted:
             system = P.build(jade, s, tools, query)
         msgs = [{"role": "system", "content": system}] + [m for m in s.messages]
+        if self.steps == 1 and s.route and s.allow_tools is None and s.prompt_override is None:
+            # main chat: the router (if on) picks the model once, before the turn's first model call
+            from .modelrouter import pick
+            r = await pick(jade, s.messages)
+            if r is not None:
+                if not r.error:
+                    self.provider = jade.routed_provider(r.provider, r.model)
+                    s.meta["routed"] = f"{r.provider}:{r.model}"
+                else:
+                    s.meta.pop("routed", None)
+                yield E.Routed(r.provider, r.model, r.note, r.confidence, r.ms, r.error)
         text, thinking, calls, usage = [], [], [], None
         try:
-            async for c in jade.provider.chat(msgs, [t.schema(jade) for t in tools] or None):
+            async for c in (self.provider or jade.provider).chat(msgs, [t.schema(jade) for t in tools] or None):
                 if s._cancel:
                     break
                 if c.thinking:

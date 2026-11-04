@@ -359,6 +359,7 @@ async function send(text) {
         if (ev === 'text') { text_ += d.text; all += d.text; mdEl.innerHTML = md(text_); jadeMood('writing'); jadeBubble(plain(text_).slice(-320)); }
         else if (ev === 'thinking') { think += d.text; let t = ai.querySelector('.think'); if (!t) { const det = document.createElement('details'); det.innerHTML = '<summary class="hint">thinking…</summary><div class="think"></div>'; ai.insertBefore(det, mdEl); t = det.querySelector('.think'); } t.textContent = think; jadeMood('thinking'); }
         else if (ev === 'tool_start') { const w = document.createElement('div'); w.innerHTML = toolCard({ id: d.id, name: d.name, arguments: d.arguments }, null); ai.appendChild(w.firstElementChild); jadeMood('working'); jadeBubble(toolCaption(d.name, d.arguments), 'Jade'); text_ = ''; const nm = document.createElement('div'); nm.className = 'md'; ai.appendChild(nm); mdEl = nm; }
+        else if (ev === 'routed') { const t = document.createElement('div'); t.className = 'hint routed'; t.title = d.error || d.note || ''; t.textContent = d.error ? `↳ main model (${d.error.replace(/^router: /, '')})` : `↳ ${d.model}${d.confidence != null ? ` · ${Math.round(d.confidence * 100)}%` : ''}`; ai.insertBefore(t, ai.firstChild); }
         else if (ev === 'tool_progress') { const c = ai.querySelector(`[data-call="${CSS.escape(d.id)}"] .tout`); if (c) c.textContent += d.line + '\n'; }
         else if (ev === 'tool_end') { const c = ai.querySelector(`[data-call="${CSS.escape(d.id)}"]`); if (c) { c.classList.remove('run'); if (d.error) c.classList.add('err'); c.querySelector('.tstat').textContent = d.error ? (d.skipped ? 'not run' : 'error') : `${d.ms} ms`; c.querySelector('.tout').textContent = String(d.output).slice(0, 20000); } }
         else if (ev === 'error') { toast(d.message, 'bad', 'Jade'); jadeMood('error', 3000); }
@@ -795,6 +796,7 @@ PAGES.logs = async (v, parts) => {
 /* ---------------- settings ---------------- */
 const GROUPS = [
   ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
+  ['Model router (laya picks the model for each turn)', ['router_on', 'router_models', 'router_decider', 'router_min_confidence']],
   ['The agent', ['approve', 'max_steps', 'tool_router', 'bash_timeout', 'shell', 'max_tool_output', 'memory_lines', 'journal', 'think_on', 'delegate_on', 'timezone']],
   ['Hearing (talk mode through jade-py)', ['stt_provider', 'stt_model']],
   ['Phones, tablets and Sentry', ['phones', 'link_on', 'phone_default', 'phone_confirm', 'sentry_phone', 'sentry_allow', 'sentry_limit', 'look_images']],

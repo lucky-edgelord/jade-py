@@ -140,6 +140,12 @@ class Settings(BaseSettings):
     ollaya_key: str = ""
     decide_ollama_host: str = Field(default="", description="Ollama address for decisions (empty: host)")
 
+    # the model router: before each chat turn laya (the decision model above) picks which listed model answers
+    router_on: bool = Field(default=False, description="let the decision model pick the model for each chat turn")
+    router_models: list[dict] = Field(default_factory=list, description='models to pick from: {model: "provider:model" (or a model name for the main provider), note: "what it is good at"}')
+    router_decider: str = Field(default="", description="the decision model for routing (empty: ollaya_model, e.g. laya)")
+    router_min_confidence: float = Field(default=0.0, description="below this confidence the main model answers")
+
     # on-device models (the onnx and litert tools) and USB devices (the usb tool)
     onnx_on: bool = True
     onnx_providers: list[str] = Field(default_factory=list, description='ONNX Runtime execution providers in order, e.g. ["TensorrtExecutionProvider", "CUDAExecutionProvider"] (empty: the GPU ones it has, then the CPU)')
@@ -195,6 +201,13 @@ class Settings(BaseSettings):
             return {}
         import socket
         return {"Authorization": "Bearer " + self.fleet_token, "X-Jade-Device": self.fleet_device or socket.gethostname()}
+
+    @field_validator("router_models", mode="before")
+    @classmethod
+    def _router_models(cls, v):
+        if isinstance(v, str):
+            v = [x for x in re.split(r"[\n,;]+", v) if x.strip()]
+        return [{"model": x.strip()} if isinstance(x, str) else x for x in (v or [])]
 
     @field_validator("sentry_allow", mode="before")
     @classmethod

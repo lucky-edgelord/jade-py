@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+The model router, as in Jade Vault 2.23.
+
+- **Model router.** `router_on` and `router_models` (each `{model = "provider:model", note = "what it is good at"}`): before each chat turn the decision model (laya, through `decide_provider` / `ollaya_host`, so a fleet broker works too) picks which model answers. `router_decider` picks another decision model than `ollaya_model`; below `router_min_confidence` the main model answers. The pick holds for the whole turn; if laya fails or the picked model cannot be reached, the main model answers. Turns report a `routed` event; the REPL and dashboard show which model answered. Settings: Dashboard → Settings → Model router.
+- `decide_data(..., model=)` takes the decision model to use.
+
 ## 0.9.0
 
 Caught up with Jade Vault 2.18-2.22.

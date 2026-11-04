@@ -176,6 +176,7 @@ class Scheduler:
                     sess.title = f"⏰ {s['name']}" + ("" if s.get("chat") == "same" else f" · {self.now().strftime('%b %-d %H:%M')}")
                     if s.get("chat") == "same":
                         s["session_id"] = sess.id
+                sess.route = False
                 async with j.background:
                     reply = await sess.ask(s["prompt"])
                 s["last_status"] = "ok"
@@ -289,6 +290,7 @@ async def run_heartbeat(jade: "Jade", manual: bool = False) -> str:
         s.title = "♥ Heartbeat"
         s.meta["heartbeat"] = True
         state["hb_session"] = s.id
+    s.route = False
     before = len(s.messages)
     prompt = f"[Heartbeat · {jade.now().strftime('%a %b %-d %H:%M')}]\n{st.hb_prompt.strip() or HB_DEFAULT_PROMPT}\n\nHEARTBEAT.md:\n{body}"
     try:

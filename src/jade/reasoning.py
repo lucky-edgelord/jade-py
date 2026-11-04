@@ -44,9 +44,10 @@ def decide_server(st) -> tuple[str, str, dict]:
     return name, base, {**headers, **st.fleet_headers(base)}
 
 
-async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: str = "choice", options=None) -> dict:   # noqa: A002
+async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: str = "choice", options=None, model: str = "") -> dict:   # noqa: A002
     st = jade.settings
-    if not st.ollaya_model:
+    model = model or st.ollaya_model
+    if not model:
         raise ToolError("No decision model is set (ollaya_model in the config).")
     t = "noul" if type == "yesno" else type
     q: dict = {"type": t, "instructions": str(question or "")}
@@ -62,7 +63,7 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
         q["criteria"] = opts[:10]
     elif t != "noul":
         raise ToolError("type must be choice, score or yesno")
-    body = {"model": st.ollaya_model, "state": state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, default=str), "questions": {"q": q}}
+    body = {"model": model, "state": state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, default=str), "questions": {"q": q}}
     name, base, headers = decide_server(st)
     try:
         async with httpx.AsyncClient(timeout=60) as h:
@@ -84,7 +85,7 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
         raise ToolError(f"{name} returned no answer")
     pr = ans.get("probabilities")
     probs = {str(i): float(v) for i, v in enumerate(pr)} if isinstance(pr, list) else {k: float(v) for k, v in (pr or {}).items()}
-    out = {"type": "yesno" if type == "yesno" else t, "confidence": float(ans["confidence"]) if ans.get("confidence") is not None else None, "probabilities": probs, "model": j.get("model") or st.ollaya_model}
+    out = {"type": "yesno" if type == "yesno" else t, "confidence": float(ans["confidence"]) if ans.get("confidence") is not None else None, "probabilities": probs, "model": j.get("model") or model}
     if "choice" in ans:
         out["choice"] = out["result"] = ans["choice"]
     if "score" in ans:

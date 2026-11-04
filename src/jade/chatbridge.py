@@ -259,6 +259,7 @@ class Bridge:
             s.title = f"{self.icon} {self.chans[item['chat_id']]['label'] if item['is_group'] and item['chat_id'] in self.chans else self.name(item['chat_id'] if not item['is_group'] else item['sender'])}"
             j.state.setdefault("bridge_sessions", {})[key] = s.id
             j.save_state()
+        s.route = False   # messenger chats keep the main model (the router is for the owner's own chats)
         return s
 
     async def wake(self, item: dict) -> None:
