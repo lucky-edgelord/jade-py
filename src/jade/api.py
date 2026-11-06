@@ -20,7 +20,7 @@ import secrets
 import time
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
@@ -378,6 +378,59 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
     @app.delete("/v1/trajectories", dependencies=[Depends(auth)])
     async def traj_clear():
         return {"ok": True, "api": API, "deleted": jade.traj.clear()}
+
+    # ---- knowledge graph (facts added here are the user's: confirmed)
+    from . import knowledge as KN
+
+    def kg_try(fn):
+        try:
+            return {"ok": True, "api": API, **fn()}
+        except KN.KgError as e:
+            return err(400, "knowledge_" + (e.code or "error"), str(e))
+
+    @app.get("/v1/knowledge", dependencies=[Depends(auth)])
+    async def kg_stats():
+        return kg_try(lambda: {**KN.kg_of(jade).op("stats"), "verify_mode": st.kg_verify})
+
+    @app.post("/v1/knowledge/verify", dependencies=[Depends(auth)])
+    async def kg_verify(body: dict = Body(...)):
+        def run():
+            k = KN.kg_of(jade); h = k.load()
+            claims = body.get("claims") if isinstance(body.get("claims"), list) else [body.get("claim", "")]
+            res = [KN.call({"op": "verify", "handle": h, "claim": str(c)}) for c in claims[:100]]
+            return {"results": res, "text": "\n\n".join(r["text"] for r in res)} if isinstance(body.get("claims"), list) else res[0]
+        return kg_try(run)
+
+    @app.post("/v1/knowledge/query", dependencies=[Depends(auth)])
+    async def kg_query(body: dict = Body(...)):
+        return kg_try(lambda: KN.kg_of(jade).op("query", q=str(body.get("q", "")), limit=int(body.get("limit") or 50)))
+
+    @app.post("/v1/knowledge/why", dependencies=[Depends(auth)])
+    async def kg_why(body: dict = Body(...)):
+        return kg_try(lambda: KN.kg_of(jade).op("why", fact=str(body.get("fact", ""))))
+
+    @app.get("/v1/knowledge/check", dependencies=[Depends(auth)])
+    async def kg_check():
+        return kg_try(lambda: KN.kg_of(jade).op("check"))
+
+    @app.get("/v1/knowledge/facts", dependencies=[Depends(auth)])
+    async def kg_facts(status: str | None = None):
+        return {"ok": True, "api": API, "facts": [f for f in KN.kg_of(jade).facts() if f.get("fact") and (not status or f.get("status") == status)]}
+
+    @app.post("/v1/knowledge/facts", dependencies=[Depends(auth)])
+    async def kg_add(body: dict = Body(...)):
+        return kg_try(lambda: KN.kg_of(jade).add(body, "user"))
+
+    @app.patch("/v1/knowledge/facts/{fid}", dependencies=[Depends(auth)])
+    async def kg_set(fid: str, body: dict = Body(...)):
+        s = body.get("status")
+        if s not in ("confirmed", "proposed", "rejected"):
+            return err(400, "bad_status", "status must be confirmed, proposed or rejected")
+        return {"ok": True, "api": API, "changed": KN.kg_of(jade).set_status([fid], s)}
+
+    @app.delete("/v1/knowledge/facts/{fid}", dependencies=[Depends(auth)])
+    async def kg_del(fid: str):
+        return {"ok": True, "api": API, "removed": KN.kg_of(jade).remove([fid])}
 
     # ---- tools
     @app.get("/v1/tools", dependencies=[Depends(auth)])

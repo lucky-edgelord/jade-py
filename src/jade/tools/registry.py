@@ -61,7 +61,7 @@ class Tool:
     core: bool = True              # always sent; optional tools go through the tool router
     hints: str = ""                # extra words the tool router matches on
     enabled: Callable[["Jade"], bool] | None = None
-    summary: str = ""              # one line for the system prompt's tool list
+    summary: str | Callable[["Jade"], str] = ""   # one line for the system prompt's tool list (or a function of jade)
     hidden: bool = False           # callable (scripts, flows, codemode) but never offered to the model
 
     def describe(self, jade: "Jade") -> str:

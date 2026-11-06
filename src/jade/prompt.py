@@ -84,8 +84,9 @@ def build(jade: "Jade", session: "Session", tools: list, query: str = "") -> str
     parts.append(environment(jade))
     lines = []
     for t in tools:
-        if t.summary:
-            lines.append("- " + t.summary)
+        s = t.summary(jade) if callable(t.summary) else t.summary   # a part can make its line depend on settings
+        if s:
+            lines.append("- " + s)
     if lines:
         parts.append("Tools:\n" + "\n".join(dict.fromkeys(lines)))
     if not custom:

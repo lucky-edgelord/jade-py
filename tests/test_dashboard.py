@@ -244,3 +244,23 @@ async def test_rate_retry_and_export_trajectories(site, fake):
     assert sorted(o["metadata"]["rating"] for o in got) == [-1, 1]
     await shot(page, "trajectories")
     assert not errors, errors
+
+
+async def test_knowledge_panel(site):
+    from jade import knowledge as K
+    jade, base, b = site
+    k = K.kg_of(jade)
+    k.add({"fact": "reports_to(bob, alice)"}, "user")
+    k.add({"fact": "reports_to(carol, bob)", "source": "People.md"}, "jade")
+    page, errors = await open_page(b, base)
+    await page.goto(base + "/ui/#/settings")
+    await page.wait_for_selector("#kgQ", state="attached")
+    await page.click("summary:text('Knowledge graph')")
+    await page.wait_for_function("document.querySelector('#kgStats').textContent.includes('2 facts (1 confirmed, 1 proposed)')")
+    await page.fill("#kgQ", "reports_to(bob, alice)")
+    await page.click("#kgVerifyBtn")
+    await page.wait_for_function("document.querySelector('#kgOut').textContent.startsWith('✓ PROVEN')")
+    await page.click("#kgConfAll")
+    await page.wait_for_function("document.querySelector('#kgStats').textContent.includes('2 confirmed, 0 proposed')")
+    assert all(f["status"] == "confirmed" for f in k.facts())
+    assert not errors, errors

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jade-vault"
-version = "0.11.0"
+version = "0.12.0"
 description = "Jade, the agent from Jade Vault, in Python: use her as a library, a REPL, an HTTP API, or step by step"
 readme = "README.md"
 license = { text = "MIT" }
@@ -13,6 +13,7 @@ authors = [{ name = "lucky-edgelord" }]
 keywords = ["agent", "llm", "ollama", "notes", "obsidian", "tools", "repl"]
 dependencies = [
   "httpx>=0.27",
+  "wasmtime>=20",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
   "typer>=0.12",
@@ -53,7 +54,7 @@ Homepage = "https://github.com/lucky-edgelord/jade-py"
 where = ["src"]
 
 [tool.setuptools.package-data]
-jade = ["seed/**/*", "seed/*", "*.json", "tools/*.json", "js/*.js", "web/*", "web/avatar/*"]
+jade = ["seed/**/*", "seed/*", "*.json", "tools/*.json", "*.wasm", "js/*.js", "web/*", "web/avatar/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

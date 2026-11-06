@@ -176,6 +176,10 @@ as `{{NAME}}` from `secrets` in the config), notes_search, note_links, memory, s
 (the tool router sends optional tools only when a chat needs them, and keeps them once used so the model's prompt
 cache keeps working).
 
+Knowledge: **knowledge** (facts like `works_at(alice, acme)`, rules and constraints in `/Jade/Knowledge`, and a
+Datalog reasoner, the app's Rust engine as WebAssembly, that answers ✓ proven with its proof, ✗ contradicted or ? unknown.
+Jade's facts are proposed until you confirm them. `jade kg verify "works_at(alice, acme)"`, `jade kg check`.)
+
 Reasoning: **think** (a tree of thoughts where every line is checked by something that can say no: JavaScript run
 in a read-only sandbox, a shell command, a file check, a rubric or a judge; the best verified line wins; trees and
 episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and read-only tools unless `write: true`,

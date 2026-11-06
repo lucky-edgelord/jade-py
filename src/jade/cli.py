@@ -305,6 +305,109 @@ if __name__ == "__main__":
     main()
 
 
+kg_app = typer.Typer(help="The knowledge graph: facts, rules and constraints, and a reasoner that proves answers.", no_args_is_help=True)
+app.add_typer(kg_app, name="kg")
+
+
+def _kg():
+    from . import knowledge as KN
+    return KN, KN.kg_of(_jade())
+
+
+def _kg_run(fn):
+    KN, _ = _kg()
+    try:
+        return fn()
+    except KN.KgError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(3)
+
+
+@kg_app.command("verify")
+def kg_verify(claim: str = typer.Argument(..., help='e.g. "works_at(alice, acme)" or "not works_at(alice, acme)"')):
+    """Check a claim. Exit code: 0 proven, 1 contradicted, 2 unknown, 3 error."""
+    KN, k = _kg()
+    r = _kg_run(lambda: KN.call({"op": "verify", "handle": k.load(), "claim": claim}))
+    typer.echo(r["text"])
+    raise typer.Exit({"proven": 0, "contradicted": 1}.get(r["verdict"], 2))
+
+
+@kg_app.command("query")
+def kg_query(q: str = typer.Argument(..., help='conditions, e.g. "above(bob, X), works_at(X, C)"'), limit: int = typer.Option(50, "--limit")):
+    """Answers to a query with variables."""
+    KN, k = _kg()
+    typer.echo(_kg_run(lambda: k.op("query", q=q, limit=limit))["text"])
+
+
+@kg_app.command("why")
+def kg_why(fact: str = typer.Argument(...)):
+    """The proof of one fact."""
+    KN, k = _kg()
+    typer.echo(_kg_run(lambda: k.op("why", fact=fact))["text"])
+
+
+@kg_app.command("check")
+def kg_check():
+    """Every constraint the facts break. Exit code 1 if any."""
+    KN, k = _kg()
+    r = _kg_run(lambda: k.op("check"))
+    typer.echo(r["text"])
+    raise typer.Exit(1 if r["violations"] else 0)
+
+
+@kg_app.command("facts")
+def kg_facts(status: Optional[str] = typer.Option(None, "--status", help="confirmed, proposed or rejected")):
+    """List facts."""
+    KN, k = _kg()
+    for f in k.facts():
+        if f.get("fact") and (not status or f.get("status") == status):
+            typer.echo(f"[{f['id']}] {f['fact']}  ({f.get('status')}{', ' + f['source'] if f.get('source') else ''})")
+
+
+@kg_app.command("add")
+def kg_add(fact: str = typer.Argument(...), source: str = typer.Option("", "--source")):
+    """Add a fact of your own (confirmed)."""
+    KN, k = _kg()
+    r = _kg_run(lambda: k.add({"fact": fact, "source": source or "entered"}, "user"))
+    typer.echo(f"{r['fact']}: {r['note']} ({r['status']}, id {r['id']})")
+
+
+@kg_app.command("confirm")
+def kg_confirm(ids: list[str] = typer.Argument(None), all_: bool = typer.Option(False, "--all", help="every proposed fact")):
+    """Confirm Jade's proposed facts."""
+    KN, k = _kg()
+    want = [f["id"] for f in k.facts() if f.get("status") == "proposed"] if all_ else (ids or [])
+    typer.echo(f"Confirmed {k.set_status(want, 'confirmed')}.")
+
+
+@kg_app.command("reject")
+def kg_reject(ids: list[str] = typer.Argument(...)):
+    """Reject facts (they stay out, and Jade cannot add them again)."""
+    KN, k = _kg()
+    typer.echo(f"Rejected {k.set_status(ids, 'rejected')}.")
+
+
+@kg_app.command("remove")
+def kg_remove(ids: list[str] = typer.Argument(...)):
+    """Delete facts."""
+    KN, k = _kg()
+    typer.echo(f"Removed {k.remove(ids)}.")
+
+
+@kg_app.command("rules")
+def kg_rules():
+    """Print the rules and constraints file."""
+    KN, k = _kg()
+    typer.echo(k.rules())
+
+
+@kg_app.command("stats")
+def kg_stats():
+    """How many facts, rules and constraints."""
+    KN, k = _kg()
+    typer.echo(_kg_run(k.stats_text))
+
+
 traj_app = typer.Typer(help="The trajectory log: every run as the model saw it, for fine-tuning (with 👍/👎 ratings for DPO / KTO).", no_args_is_help=True)
 app.add_typer(traj_app, name="traj")
 

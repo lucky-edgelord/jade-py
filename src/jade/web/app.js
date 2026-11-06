@@ -809,6 +809,7 @@ PAGES.logs = async (v, parts) => {
 const GROUPS = [
   ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
   ['Trajectory log (fine-tuning data; 👍/👎 for DPO / KTO)', ['traj_on', 'traj_format', 'traj_filter', 'traj_thinking', 'traj_meta']],
+  ['Knowledge graph (facts, rules, and verification with proofs)', ['kg_verify']],
   ['Model router (laya picks the model for each turn)', ['router_on', 'router_models', 'router_decider', 'router_min_confidence']],
   ['The agent', ['approve', 'max_steps', 'tool_router', 'bash_timeout', 'shell', 'max_tool_output', 'memory_lines', 'journal', 'think_on', 'delegate_on', 'timezone']],
   ['Hearing (talk mode through jade-py)', ['stt_provider', 'stt_model']],
@@ -865,7 +866,7 @@ PAGES.settings = async v => {
           <div class="row" style="margin-top:10px"><button class="btn" id="uTest">Hear her</button><button class="btn" id="uTheme">Her colours and look</button><label class="row"><input type="checkbox" id="uShow"${S.jadeShow ? ' checked' : ''}> Show her avatar</label></div></div></div>
       ${IN_APP && naHas('setKiosk') ? `<div class="row-item" style="margin-top:12px"><div class="col"><span class="t">Kiosk mode</span><span class="d" id="kioskSt">…</span></div><label class="switch"><input type="checkbox" id="uKiosk"><span></span></label><button class="btn btn-ghost" id="uSetup">Phone setup</button></div>` : ''}
     </div>
-    ${GROUPS.map(([title, keys]) => `<details class="pane" style="margin-top:12px"${title === 'The model' ? ' open' : ''}><summary class="pane-h" style="margin:0">${esc(title)}</summary>${keys.map(row).join('')}${title.startsWith('Trajectory') ? '<div style="margin-top:10px"><div class="help mono" id="trajStats">…</div><div class="row" style="margin-top:6px"><button class="btn btn-solid" id="trajExport">Export JSONL</button><span class="help">Uses the format, filter and switches above (save them first). For DPO / KTO: switch on traj_meta, set traj_filter to prefs, then 👎 a reply, ↻ retry, 👍 the better one.</span></div></div>' : ''}</details>`).join('')}
+    ${GROUPS.map(([title, keys]) => `<details class="pane" style="margin-top:12px"${title === 'The model' ? ' open' : ''}><summary class="pane-h" style="margin:0">${esc(title)}</summary>${keys.map(row).join('')}${title.startsWith('Knowledge') ? `<div style="margin-top:10px" id="kgBox"><div class="help mono" id="kgStats">…</div><div class="row" style="margin-top:8px"><input class="field mono" id="kgQ" placeholder="works_at(alice, acme)" style="flex:1;min-width:0" autocapitalize="off" spellcheck="false" aria-label="Claim or query"><button class="btn btn-solid" id="kgVerifyBtn">Verify</button><button class="btn btn-ghost" id="kgQueryBtn">Query</button><button class="btn btn-ghost" id="kgCheckBtn">Check</button></div><pre class="help mono" id="kgOut" style="white-space:pre-wrap;margin:8px 0 0"></pre><div id="kgProp" style="margin-top:8px"></div><p class="help">Files: /Jade/Knowledge/facts.jsonl and rules.dl (edit the rules there). Jade's facts wait here for you to confirm.</p></div>` : ''}${title.startsWith('Trajectory') ? '<div style="margin-top:10px"><div class="help mono" id="trajStats">…</div><div class="row" style="margin-top:6px"><button class="btn btn-solid" id="trajExport">Export JSONL</button><span class="help">Uses the format, filter and switches above (save them first). For DPO / KTO: switch on traj_meta, set traj_filter to prefs, then 👎 a reply, ↻ retry, 👍 the better one.</span></div></div>' : ''}</details>`).join('')}
     ${other.length ? `<details class="pane" style="margin-top:12px"><summary class="pane-h" style="margin:0">Other</summary>${other.map(row).join('')}</details>` : ''}
     <div class="row" style="margin:14px 0 30px;position:sticky;bottom:0;background:var(--void);padding:8px 0"><button class="btn btn-solid" id="saveSet">Save jade-py settings</button><span class="help">Saved to ${esc(st.config)}</span></div>`;
   // this device
@@ -890,6 +891,26 @@ PAGES.settings = async v => {
       toast(`Exported ${n} runs`, 'ok');
     } catch (e) { toast(e.message, 'bad'); }
   };
+  // the knowledge graph
+  const kgLoad = async () => {
+    try { const k = await api('/v1/knowledge'); $('#kgStats').textContent = `${k.facts} facts (${k.confirmed} confirmed, ${k.proposed} proposed) · ${k.derived} follow from ${k.rules} rules · ${k.constraints} constraints`; } catch (e) { $('#kgStats').textContent = e.message; }
+    try {
+      const p = (await api('/v1/knowledge/facts?status=proposed')).facts;
+      $('#kgProp').innerHTML = p.length ? `<div class="row"><b>${p.length} proposed by Jade</b><button class="btn btn-ghost" id="kgConfAll">Confirm all</button></div>` + p.slice(0, 100).map(f => `<div class="row-item"><div class="col"><span class="t mono">${esc(f.fact)}</span><span class="d">${esc(f.source || '')}</span></div><button class="btn btn-ghost" data-kgc="${esc(f.id)}">Confirm</button><button class="btn btn-ghost" data-kgr="${esc(f.id)}">Reject</button></div>`).join('') : '';
+      const set = async (ids, status) => { for (const id of ids) await api('/v1/knowledge/facts/' + encodeURIComponent(id), { method: 'PATCH', body: { status } }); kgLoad(); };
+      $('#kgConfAll')?.addEventListener('click', () => set(p.map(f => f.id), 'confirmed'));
+      $$('[data-kgc]', v).forEach(b => b.onclick = () => set([b.dataset.kgc], 'confirmed'));
+      $$('[data-kgr]', v).forEach(b => b.onclick = () => set([b.dataset.kgr], 'rejected'));
+    } catch {}
+  };
+  if ($('#kgBox')) {
+    kgLoad();
+    const show = async (path, body) => { const o = $('#kgOut'); o.textContent = '…'; try { const r = await api(path, body ? { method: 'POST', body } : {}); o.textContent = r.text; } catch (e) { o.textContent = e.message; } };
+    $('#kgVerifyBtn').onclick = () => show('/v1/knowledge/verify', { claim: $('#kgQ').value });
+    $('#kgQueryBtn').onclick = () => show('/v1/knowledge/query', { q: $('#kgQ').value });
+    $('#kgCheckBtn').onclick = () => show('/v1/knowledge/check');
+    $('#kgQ').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#kgVerifyBtn').click(); } };
+  }
   // jade-py
   $('#saveSet').onclick = async () => {
     const body = {};

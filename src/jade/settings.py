@@ -148,6 +148,7 @@ class Settings(BaseSettings):
     traj_meta: bool = Field(default=False, description="include ratings (👍/👎) and run info in exports: a metadata field per line, for DPO / KTO")
 
     # the model router: before each chat turn laya (the decision model above) picks which listed model answers
+    kg_verify: bool = Field(default=False, description="verify mode: Jade checks her factual claims against the knowledge graph and marks them")
     router_on: bool = Field(default=False, description="let the decision model pick the model for each chat turn")
     router_models: list[dict] = Field(default_factory=list, description='models to pick from: {model: "provider:model" (or a model name for the main provider), note: "what it is good at"}')
     router_decider: str = Field(default="", description="the decision model for routing (empty: ollaya_model, e.g. laya)")

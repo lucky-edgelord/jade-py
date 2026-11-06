@@ -475,6 +475,32 @@ heartbeat, schedule, curiosity), `outcome`, `rating` and per-call token counts i
 Trajectory log, which has an Export button); `traj_on = false` stops logging. Runs are kept in
 `<data>/trajectories`, one JSON file each, and never leave this machine unless you export them.
 
+### The knowledge graph (verification with proofs)
+
+The `knowledge` tool keeps facts and rules in the vault and reasons over them with the same Rust engine as the app.
+
+```text
+# /Jade/Knowledge/rules.dl
+above(X, Y) :- reports_to(X, Y).
+above(X, Z) :- reports_to(X, Y), above(Y, Z).
+! one_employer: works_at(P, A), works_at(P, B), A != B.
+```
+
+```bash
+jade kg add "reports_to(bob, alice)"
+jade kg add "reports_to(carol, bob)"
+jade kg verify "above(carol, alice)"      # ✓ PROVEN, with the proof; exit code 0
+jade kg verify "above(alice, carol)"      # ? UNKNOWN: missing is not false; exit code 2
+jade kg query "above(carol, X)"           # X = bob, X = alice
+jade kg check                             # every constraint the facts break
+```
+
+From Python, `await jade.run_tool("knowledge", {"action": "verify", "claim": "above(carol, alice)"})`; over HTTP,
+`POST /v1/knowledge/verify {"claim": ...}`. When Jade adds facts (from a note, or something you said) they are
+*proposed*: confirm them with `jade kg confirm --all` or in the dashboard (Settings → Knowledge graph). A proof that
+rests on unconfirmed facts says so. Turn on `kg_verify` and Jade checks her factual claims against the graph and
+marks them ✓, ✗ or ?.
+
 ## 14. Automation
 
 Run `jade daemon` (a foreground process, systemd-friendly) or `jade serve` (which includes it) to let these run.

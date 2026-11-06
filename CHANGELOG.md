@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0
+
+The knowledge graph, as in Jade Vault 2.25.0.
+
+- **Facts, rules, and a reasoner that proves its answers.** The `knowledge` tool keeps facts like `works_at(alice, acme)` in `/Jade/Knowledge/facts.jsonl` and rules and constraints in `/Jade/Knowledge/rules.dl`, the same files as the app. The reasoner is the app's Rust engine (Datalog with stratified negation and comparisons), shipped as `kg.wasm` and run with wasmtime, so both give the same answers.
+- **Verification.** `verify` answers ✓ proven (with the facts and rules it rests on), ✗ contradicted (`not p` while `p` holds, or the claim would break a constraint) or ? unknown (missing is not false). `query` answers conditions with variables, `why` shows a proof, `check` lists every constraint the facts break.
+- **Who said so.** Jade's facts are proposed until you confirm them; answers say when they rest on unconfirmed facts. Rejected facts stay out, and Jade cannot add them again. Verify mode (`kg_verify`) asks Jade to check her factual claims and mark them ✓, ✗ or ?.
+- `jade kg verify|query|why|check|facts|add|confirm|reject|remove|rules|stats` (verify's exit code is the verdict: 0 proven, 1 contradicted, 2 unknown), `/v1/knowledge/...` in the API, a Knowledge section in the dashboard's Settings, and a `knowledge-graph` skill. New dependency: `wasmtime`.
+
 ## 0.11.0
 
 Trajectories, as in Jade Vault 2.23.1.
