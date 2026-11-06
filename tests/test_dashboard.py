@@ -264,3 +264,34 @@ async def test_knowledge_panel(site):
     await page.wait_for_function("document.querySelector('#kgStats').textContent.includes('2 confirmed, 0 proposed')")
     assert all(f["status"] == "confirmed" for f in k.facts())
     assert not errors, errors
+
+
+async def test_queue_and_plans_pages(site):
+    jade, base, b = site
+    jade.plans.tool({"action": "create", "name": "Shed"}, "user")
+    jade.plans.tool({"action": "add", "project": "shed", "name": "Design", "days": 3, "owner": "jade"}, "user")
+    jade.plans.tool({"action": "add", "project": "shed", "name": "Build", "days": 4, "deps": "t1"}, "user")
+    t = jade.autonomy.add({"title": "Call", "goal": "Call the user", "tier": 2}, "user")
+    t["state"], t["need"] = "waiting", {"tool": "phone", "args": {"number": "1"}}
+    jade.autonomy.save()
+    page, errors = await open_page(b, base)
+    await page.goto(base + "/ui/#/queue")
+    await page.wait_for_selector("text=Tier 2 · Priority queue")
+    assert "wants to use" in await page.inner_text("#view")
+    await page.click("[data-q='allow']")
+    await page.wait_for_function("!document.querySelector('[data-q=allow]')")
+    assert jade.autonomy.load()[0]["allow"] == ["phone"] and jade.autonomy.load()[0]["state"] == "ready"
+    await page.click("#qOn")
+    await page.wait_for_selector("#qStop")
+    assert jade.settings.auto_on is True
+    await shot(page, "queue")
+    await page.goto(base + "/ui/#/plans/shed")
+    await page.wait_for_selector("text=Critical path")
+    assert await page.locator("#view svg rect").count() >= 4
+    await page.fill("#tName", "Paint")
+    await page.fill("#tDeps", "t2")
+    await page.click("#tAdd")
+    await page.wait_for_function("document.querySelector('#view').textContent.includes('t3 Paint')")
+    assert [x["name"] for x in jade.plans.load("shed")["tasks"]] == ["Design", "Build", "Paint"]
+    await shot(page, "plans")
+    assert not errors, errors

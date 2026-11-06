@@ -1,0 +1,396 @@
+[
+ {
+  "code": "(+ 1 2 3)",
+  "want": "6"
+ },
+ {
+  "code": "(- 10 4 1)",
+  "want": "5"
+ },
+ {
+  "code": "(/ 1 4)",
+  "want": "0.25"
+ },
+ {
+  "code": "(modulo -7 3)",
+  "want": "2"
+ },
+ {
+  "code": "(expt 2 10)",
+  "want": "1024"
+ },
+ {
+  "code": "(define x 5) (set! x (* x 2)) x",
+  "want": "10"
+ },
+ {
+  "code": "(let ((a 1) (b 2)) (+ a b))",
+  "want": "3"
+ },
+ {
+  "code": "(let [a 1 b 2] (list a b))",
+  "want": "(1 2)"
+ },
+ {
+  "code": "(let* ((a 1) (b (+ a 1))) b)",
+  "want": "2"
+ },
+ {
+  "code": "(letrec ((ev? (lambda (n) (if (= n 0) #t (od? (- n 1))))) (od? (lambda (n) (if (= n 0) #f (ev? (- n 1)))))) (ev? 1000))",
+  "want": "#t"
+ },
+ {
+  "code": "(let loop ((i 0) (s 0)) (if (= i 200000) s (loop (+ i 1) (+ s i))))",
+  "want": "19999900000"
+ },
+ {
+  "code": "(define (count n) (if (= n 0) 0 (+ 1 (count (- n 1))))) (count 2000)",
+  "want": "2000"
+ },
+ {
+  "code": "(cond ((> 1 2) \"a\") ((< 1 2) \"b\") (else \"c\"))",
+  "want": "\"b\""
+ },
+ {
+  "code": "(cond ((assoc 2 '((1 one) (2 two))) => cadr) (else 0))",
+  "want": "two"
+ },
+ {
+  "code": "(case 3 ((1 2) \"low\") ((3 4) \"mid\") (else \"high\"))",
+  "want": "\"mid\""
+ },
+ {
+  "code": "(and 1 2 3)",
+  "want": "3"
+ },
+ {
+  "code": "(or #f nil 7)",
+  "want": "7"
+ },
+ {
+  "code": "(and)",
+  "want": "#t"
+ },
+ {
+  "code": "(when #f 1)",
+  "want": "nil"
+ },
+ {
+  "code": "(unless #f 1 2)",
+  "want": "2"
+ },
+ {
+  "code": "(define i 0) (while (< i 5) (set! i (+ i 1))) i",
+  "want": "5"
+ },
+ {
+  "code": "'(a b . c)",
+  "want": "(a b . c)"
+ },
+ {
+  "code": "`(1 ,(+ 1 1) ,@(list 3 4))",
+  "want": "(1 2 3 4)"
+ },
+ {
+  "code": "(define-macro (swap! a b) (let ((t (gensym))) `(let ((,t ,a)) (set! ,a ,b) (set! ,b ,t)))) (define p 1) (define q 2) (swap! p q) (list p q)",
+  "want": "(2 1)"
+ },
+ {
+  "code": "(defmacro unless2 (c . body) `(if ,c nil (begin ,@body))) (unless2 #f 42)",
+  "want": "42"
+ },
+ {
+  "code": "(macroexpand '(defn f (x) x))",
+  "want": "(define f (lambda (x) x))"
+ },
+ {
+  "code": "(try (error \"bad\" 42) (catch e e))",
+  "want": "\"bad 42\""
+ },
+ {
+  "code": "(try (raise {:code 7}) (catch e (get e :code)))",
+  "want": "7"
+ },
+ {
+  "code": "(define log (list)) (try (try (error \"x\") (finally (set! log (list \"fin\")))) (catch e (append log (list e))))",
+  "want": "(\"fin\" \"x\")"
+ },
+ {
+  "code": "(assert (= 1 2) \"math broke\")",
+  "want": "ERR assertion failed: math broke (line 1)"
+ },
+ {
+  "code": "(car 5)",
+  "want": "ERR car: expected a non-empty list, got 5 (line 1)"
+ },
+ {
+  "code": "(f 1)",
+  "want": "ERR unbound symbol: f (line 1)"
+ },
+ {
+  "code": "((lambda (a b) a) 1)",
+  "want": "ERR lambda expects 2 arguments, got 1 (line 1)"
+ },
+ {
+  "code": "(map + (list 1 2) (list 10 20))",
+  "want": "(11 22)"
+ },
+ {
+  "code": "(filter odd? (range 10))",
+  "want": "(1 3 5 7 9)"
+ },
+ {
+  "code": "(reduce + 0 (range 5))",
+  "want": "10"
+ },
+ {
+  "code": "(reduce * (list 1 2 3 4))",
+  "want": "24"
+ },
+ {
+  "code": "(sort (list 3 1 2))",
+  "want": "(1 2 3)"
+ },
+ {
+  "code": "(sort (list \"b\" \"a\" \"c\") (lambda (a b) (string<? a b)))",
+  "want": "(\"a\" \"b\" \"c\")"
+ },
+ {
+  "code": "(sort-by (lambda (m) (get m :n)) (list {:n 2} {:n 1}))",
+  "want": "({:n 1} {:n 2})"
+ },
+ {
+  "code": "(group-by even? (range 5))",
+  "want": "{:true (0 2 4) :false (1 3)}"
+ },
+ {
+  "code": "(-> {:a 1} (assoc :b 2) (get :b))",
+  "want": "2"
+ },
+ {
+  "code": "(->> (range 5) (map inc) (filter even?) (sum))",
+  "want": "6"
+ },
+ {
+  "code": "(dotimes (i 3) (print i))",
+  "want": "nil"
+ },
+ {
+  "code": "(get {:a {:b 1}} :a)",
+  "want": "{:b 1}"
+ },
+ {
+  "code": "(get-in {:a {:b 1}} [:a :b])",
+  "want": "1"
+ },
+ {
+  "code": "(:a {:a 9})",
+  "want": "9"
+ },
+ {
+  "code": "({:a 9} :a)",
+  "want": "9"
+ },
+ {
+  "code": "(assoc-in {} [:a :b] 1)",
+  "want": "{:a {:b 1}}"
+ },
+ {
+  "code": "(keys {:a 1 :b 2})",
+  "want": "(:a :b)"
+ },
+ {
+  "code": "(merge {:a 1} {:b 2})",
+  "want": "{:a 1 :b 2}"
+ },
+ {
+  "code": "(update {:n 1} :n + 10)",
+  "want": "{:n 11}"
+ },
+ {
+  "code": "(dissoc {:a 1 :b 2} :a)",
+  "want": "{:b 2}"
+ },
+ {
+  "code": "(json-string {:a (list 1 2) :b :kw})",
+  "want": "\"{\\\"a\\\":[1,2],\\\"b\\\":\\\"kw\\\"}\""
+ },
+ {
+  "code": "(get (json-parse \"{\\\"x\\\": [1, {\\\"y\\\": 2}]}\") :x)",
+  "want": "(1 {:y 2})"
+ },
+ {
+  "code": "(format \"~a + ~s = ~a~%\" 1 \"two\" 3)",
+  "want": "\"1 + \\\"two\\\" = 3\\n\""
+ },
+ {
+  "code": "(str \"a\" 1 :k nil)",
+  "want": "\"a1:knil\""
+ },
+ {
+  "code": "(string-split \"a,b,c\" \",\")",
+  "want": "(\"a\" \"b\" \"c\")"
+ },
+ {
+  "code": "(string-join (list 1 2 3) \"-\")",
+  "want": "\"1-2-3\""
+ },
+ {
+  "code": "(regex-match \"(\\\\d+)-(\\\\d+)\" \"x 12-34\")",
+  "want": "(\"12-34\" \"12\" \"34\")"
+ },
+ {
+  "code": "(substring \"hello\" 1 3)",
+  "want": "\"el\""
+ },
+ {
+  "code": "((compose inc inc) 1)",
+  "want": "3"
+ },
+ {
+  "code": "((partial + 10) 5)",
+  "want": "15"
+ },
+ {
+  "code": "(if-let (x (get {:a 1} :a)) (* x 10) 0)",
+  "want": "10"
+ },
+ {
+  "code": "(eval (list '+ 1 2))",
+  "want": "3"
+ },
+ {
+  "code": "(read-string \"(a b)\")",
+  "want": "(a b)"
+ },
+ {
+  "code": "(type-of :k)",
+  "want": "keyword"
+ },
+ {
+  "code": "(let loop () (loop))",
+  "want": "ERR out of fuel after 2000 steps (raise --fuel, or look for an endless loop) (line 1)",
+  "opts": {
+   "fuel": 2000
+  }
+ },
+ {
+  "code": "(define e (sandbox :pure)) (eval-in e \"(+ 1 2)\")",
+  "want": "3"
+ },
+ {
+  "code": "(define e (sandbox :pure)) (eval-in e \"(read-file \\\"/x\\\")\")",
+  "want": "ERR unbound symbol: read-file (line 1)"
+ },
+ {
+  "code": "(define e (sandbox :pure)) (eval-in e \"(jade/tool \\\"x\\\")\")",
+  "want": "ERR unbound symbol: jade/tool (line 1)"
+ },
+ {
+  "code": "(define e (sandbox :pure)) (eval-in e \"(tool/write :path \\\"/x\\\")\")",
+  "want": "ERR unbound symbol: tool/write (line 1)"
+ },
+ {
+  "code": "(define e (sandbox (quote +))) (eval-in e \"(list 1)\")",
+  "want": "ERR unbound symbol: list (line 1)"
+ },
+ {
+  "code": "(define e (sandbox :pure)) (eval-in e \"(let loop () (loop))\" {:fuel 500})",
+  "want": "ERR out of fuel: the sandboxed program used more than 500 steps (line 1)"
+ },
+ {
+  "code": "(define e (sandbox {:double (lambda (x) (* 2 x))})) (eval-in e \"(double 21)\")",
+  "want": "42"
+ },
+ {
+  "code": "(+ 1 \"a\")",
+  "want": "ERR +: expected a number, got \"a\" (line 1)"
+ },
+ {
+  "code": "(1 2)",
+  "want": "ERR not a function: 1 (line 1)"
+ },
+ {
+  "code": "(car (quote ()))",
+  "want": "ERR car: expected a non-empty list, got () (line 1)"
+ },
+ {
+  "code": "\"a\\nb\"",
+  "want": "\"a\\nb\""
+ },
+ {
+  "code": "#| block |# ; line\n #;(ignored) 5",
+  "want": "5"
+ },
+ {
+  "code": "(sum (map (lambda (x) (* x x)) (range 1 1001)))",
+  "want": "333833500"
+ },
+ {
+  "code": "(tool/notes_search :query \"cats\" :limit 3)",
+  "want": "\"result of notes_search {\\\"query\\\":\\\"cats\\\",\\\"limit\\\":3}\""
+ },
+ {
+  "code": "(jade/tool \"read\" {:path \"/a.md\"})",
+  "want": "\"result of read {\\\"path\\\":\\\"/a.md\\\"}\""
+ },
+ {
+  "code": "(jade/ask \"hi\")",
+  "want": "\"answer to hi\""
+ },
+ {
+  "code": "(get (jade/flow \"f1\" {:x (list 1 2)}) :input)",
+  "want": "{:x (1 2)}"
+ },
+ {
+  "code": "(get (jade/shell \"ls\") :stdout)",
+  "want": "\"ran ls\""
+ },
+ {
+  "code": "(jade/search \"dogs\" 2)",
+  "want": "\"found dogs 2\""
+ },
+ {
+  "code": "(jade/kv-set :n 5) (jade/kv-get :n)",
+  "want": "5"
+ },
+ {
+  "code": "(get (tflite/load \"/m.tflite\") :id)",
+  "want": "\"m1-abc\""
+ },
+ {
+  "code": "(tflite/run \"m1-abc\" (list {:image \"/p.jpg\"}))",
+  "want": "{:top5 ((3 0.9))}"
+ },
+ {
+  "code": "(write-file \"/tmp/x.txt\" \"hi\")",
+  "want": "\"/tmp/x.txt\"",
+  "app_only": true
+ },
+ {
+  "code": "(map (lambda (n) (tool/echo :n n)) (list 1 2))",
+  "want": "(\"result of echo {\\\"n\\\":1}\" \"result of echo {\\\"n\\\":2}\")"
+ },
+ {
+  "code": "(js/eval \"1 + 2\")",
+  "want": "3",
+  "app_only": true
+ },
+ {
+  "code": "(js/get (js/eval \"({a: {b: 4}})\") :a :b)",
+  "want": "4",
+  "app_only": true
+ },
+ {
+  "code": "(js/call \"abc\" :toUpperCase)",
+  "want": "\"ABC\"",
+  "app_only": true
+ },
+ {
+  "code": "(jade/tool \"x\")",
+  "want": "ERR unbound symbol: jade/tool (line 1)",
+  "opts": {
+   "pure": true
+  }
+ }
+]

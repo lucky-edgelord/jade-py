@@ -432,6 +432,74 @@ def create_app(jade: Jade, daemon: bool = False) -> FastAPI:
     async def kg_del(fid: str):
         return {"ok": True, "api": API, "removed": KN.kg_of(jade).remove([fid])}
 
+    # ---- autonomous mode (the 3-tier scheduler), plans (Gantt) and Jade Lisp (2.26)
+    from .tools.registry import ToolError as _TE
+
+    def tool_try(fn):
+        try:
+            return {"ok": True, "api": API, **fn()}
+        except _TE as e:
+            return err(400, "bad_request", str(e))
+
+    @app.get("/v1/sched", dependencies=[Depends(auth)])
+    async def sched_get():
+        A = jade.autonomy
+        tasks = A.load()
+        return {"ok": True, "api": API, "on": st.auto_on, "status": (A.blocked() or ("running" if A.busy else "idle")) if st.auto_on else "off", "used": A.used(),
+                "limits": {"steps_hour": st.auto_steps_hour, "daily": st.auto_daily, "quiet_from": st.auto_quiet_from, "quiet_to": st.auto_quiet_to, "share": st.auto_share, "deny": st.auto_deny},
+                "running": A.cur["id"] if A.cur else None, "tasks": tasks, "slices": A.hist[-60:], "text": A.status_text()}
+
+    @app.post("/v1/sched/tasks", dependencies=[Depends(auth)])
+    async def sched_add(body: dict = Body(...)):
+        return tool_try(lambda: {"task": jade.autonomy.add(body, "user")})
+
+    @app.post("/v1/sched/tasks/{tid}/{action}", dependencies=[Depends(auth)])
+    async def sched_act(tid: str, action: str):
+        if action not in ("allow", "deny", "now", "pause", "resume", "cancel", "done"):
+            return err(400, "bad_action", "action must be allow, deny, now, pause, resume, cancel or done")
+        return tool_try(lambda: {"result": jade.autonomy.act(tid, action, "user")})
+
+    @app.post("/v1/sched/tick", dependencies=[Depends(auth)])
+    async def sched_tick():
+        t = await jade.autonomy.tick()
+        return {"ok": True, "api": API, "ran": t, "status": jade.autonomy.status}
+
+    @app.post("/v1/sched/{onoff}", dependencies=[Depends(auth)])
+    async def sched_onoff(onoff: str):
+        if onoff not in ("on", "off", "stop"):
+            return err(404, "not_found", "use /v1/sched/on, /off or /stop")
+        if onoff == "stop":
+            jade.autonomy.stop = True
+        jade.autonomy.set_on(onoff == "on")
+        return {"ok": True, "api": API, "on": st.auto_on}
+
+    @app.get("/v1/plans", dependencies=[Depends(auth)])
+    async def plans_list():
+        P = jade.plans
+        return {"ok": True, "api": API, "projects": [{"id": p["id"], "name": p["name"], "tasks": len(p["tasks"]), "done": sum(1 for t in p["tasks"] if t.get("progress", 0) >= 100)} for p in P.list()]}
+
+    @app.get("/v1/plans/{pid}", dependencies=[Depends(auth)])
+    async def plans_get(pid: str):
+        P = jade.plans
+
+        def run():
+            p = P.find(pid)
+            crit = P.critical(p)
+            return {"project": p, "states": {t["id"]: P.state(p, t) for t in p["tasks"]}, "critical": crit["ids"], "finish": crit["end"], "today": P.today(), "text": P.text(p), "report": P.report(p)}
+        return tool_try(run)
+
+    @app.post("/v1/plans", dependencies=[Depends(auth)])
+    async def plans_do(body: dict = Body(...)):
+        return tool_try(lambda: {"result": jade.plans.tool(body, "user")})
+
+    @app.post("/v1/lisp", dependencies=[Depends(auth)])
+    async def lisp_run(body: dict = Body(...)):
+        from .lisp import run_lisp, show
+        out, val, e = await run_lisp(jade, str(body.get("code") or ""), str(body.get("file") or ""), body.get("args") or [], int(body.get("fuel") or 50_000_000), bool(body.get("pure")))
+        if e:
+            return err(400, "lisp_error", e)
+        return {"ok": True, "api": API, "output": out, "value": show(val, True)}
+
     # ---- tools
     @app.get("/v1/tools", dependencies=[Depends(auth)])
     async def tools():

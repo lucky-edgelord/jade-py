@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     cu_tools: Literal["notes", "web", "all"] = "web"
     cu_acts_off: list[str] = Field(default_factory=list)
 
+    # autonomous mode: the 3-tier scheduler works through the queue on its own (while `jade daemon` / `jade serve` runs)
+    auto_on: bool = False
+    auto_steps_hour: int = 60
+    auto_daily: int = 600
+    auto_quiet_from: int = 23
+    auto_quiet_to: int = 7
+    auto_share: int = 4
+    auto_gantt: bool = True
+    auto_deny: list[str] = Field(default_factory=lambda: ["phone", "ssh", "discord", "vector", "usb", "browser", "browser_agent", "screen", "sentry", "mcp__*"])
+
     # scheduled backup to a Jade backup server (server/jade-backup-server.py in the app repo)
     ab_on: bool = False
     ab_url: str = ""

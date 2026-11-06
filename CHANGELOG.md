@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+Autonomous mode, Plans and Jade Lisp, as in Jade Vault 2.26.
+
+- **Autonomous mode, run by a 3-tier scheduler** (the `sched` tool). Tier 1 interrupts (always first), tier 2 a priority queue (priority 0–100, aging up to +40, deadline urgency), tier 3 round robin with feedback (2, 4 or 8 model steps a slice; a full slice demotes, 30 minutes of waiting promotes; tier 3 gets every 4th pick while tier 2 is busy). Goals keep a short note between slices and end each with `STATUS: done | continue | blocked: …`. Tasks: goals, prompts, flows, playbooks, shell commands, Lisp programs.
+- With `auto_on` (off by default) it runs inside `jade serve` / `jade daemon` within `auto_steps_hour`, `auto_daily` and quiet hours (`auto_quiet_from`/`auto_quiet_to`), behind other background runs. Tools in `auto_deny` (phone, SSH, Discord, Vector, USB, browsers, screen, Sentry, MCP) are refused until you allow them for that task. The same files as the app: `/Jade/Autonomy/queue.json`, `log.md`, `slices.jsonl`.
+- **Plans** (the `gantt` tool): Gantt charts for long-term projects in `/Jade/Projects` (the app's format): dependencies, milestones, owners, progress, auto-scheduling, the critical path, and late/blocked/ready reports. Your tasks are yours: Jade needs `confirm=true` after asking. With autonomous mode on, her ready tasks become tier 3 goals and are marked 100% when done.
+- **Jade Lisp** (the `lisp` tool): a Python port of the app's Lisp, as an explicit-stack machine (deep recursion and tail calls cost no Python stack; calls into Jade pause and resume it). It gives the app's answers on all of its shared test cases (`tests/fixtures/lisp_cases.json`, generated from the app's engine). The DSL library, examples and the `lisp-dsl` skill are seeded into `/Jade/Lisp`. `js/*` exists only in the app.
+- `jade sched status|list|add|log|allow|deny|pause|resume|cancel|done|now|on|off|tick`, `jade plan [PROJECT]`, `jade plan-do ACTION key=value…`, `jade lisp FILE | -e CODE`; `/v1/sched…`, `/v1/plans…`, `/v1/lisp`; dashboard pages **Queue** and **Plans**, and a Settings group for autonomous mode.
+- Sessions can offer a tool but refuse it as needing approval (`block_tools`), which autonomous slices use.
+
 ## 0.12.0
 
 The knowledge graph, as in Jade Vault 2.25.0.

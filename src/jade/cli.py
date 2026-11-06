@@ -451,3 +451,130 @@ def traj_clear(yes: bool = typer.Option(False, "--yes", help="do not ask")):
     if not yes and not typer.confirm(f"Delete all {j.traj.count()} logged runs?"):
         raise typer.Exit(1)
     typer.echo(f"Deleted {j.traj.clear()} runs.")
+
+
+# ---------------------------------------------------------------- Jade Lisp, autonomous mode, plans (2.26)
+@app.command("lisp")
+def lisp_cmd(file: str = typer.Argument("", help="a .jl file (in the vault, or on disk)"), args: list[str] = typer.Argument(None),
+             code: str = typer.Option("", "-e", "--eval", help="code to evaluate"), fuel: int = typer.Option(50_000_000, help="step limit"),
+             pure: bool = typer.Option(False, help="no tools, files or Jade")):
+    """Run Jade Lisp: a file, or code with -e. Prints the output (and, with -e, the value)."""
+    import asyncio as _a
+    import os as _os
+
+    from .lisp import run_lisp, show
+    j = _jade()
+    if file and not code and _os.path.isfile(file) and not j.vault.is_file(j.vault.norm(file)):
+        code, file = open(file, encoding="utf-8").read(), ""
+    if not file and not code:
+        typer.echo("give a file or -e CODE", err=True)
+        raise typer.Exit(2)
+    out, val, err = _a.run(run_lisp(j, code, file, args or [], fuel, pure, echo=lambda s: typer.echo(s, nl=False)))
+    if err:
+        typer.echo(("\n" if out and not out.endswith("\n") else "") + "lisp error: " + err, err=True)
+        raise typer.Exit(1)
+    if code and val is not None:
+        typer.echo(("\n" if out and not out.endswith("\n") else "") + show(val, True))
+
+
+sched_app = typer.Typer(help="Autonomous mode: the 3-tier scheduler (interrupts, a priority queue, round robin).", no_args_is_help=True)
+app.add_typer(sched_app, name="sched")
+
+
+@sched_app.command("status")
+def sched_status():
+    """Autonomous mode, its budget and the queue."""
+    typer.echo(_jade().autonomy.status_text())
+
+
+@sched_app.command("list")
+def sched_list(all_: bool = typer.Option(False, "--all", help="finished tasks too")):
+    typer.echo(_jade().autonomy.tool({"action": "list", "all": all_}))
+
+
+@sched_app.command("log")
+def sched_log(limit: int = 15):
+    typer.echo(_jade().autonomy.tool({"action": "log", "limit": limit}))
+
+
+@sched_app.command("add")
+def sched_add(goal: str = typer.Argument(..., help="what Jade should achieve"), tier: int = typer.Option(0, help="1 interrupt, 2 priority, 3 round robin (default 3 for a goal)"),
+              kind: str = typer.Option("goal", help="goal, prompt, flow, playbook, shell, lisp"), priority: int = 50):
+    """Queue a task (as you, not as Jade)."""
+    from .tools.registry import ToolError
+    o = {"kind": kind, "priority": priority, **({"tier": tier} if tier else {})}
+    o[{"flow": "flow", "playbook": "playbook", "shell": "command", "lisp": "code"}.get(kind, "goal")] = goal
+    try:
+        t = _jade().autonomy.add(o, "user")
+    except ToolError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2)
+    typer.echo(_jade().autonomy.line(t))
+
+
+def _sched_act(tid: str, action: str):
+    from .tools.registry import ToolError
+    try:
+        typer.echo(_jade().autonomy.act(tid, action, "user"))
+    except ToolError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2)
+
+
+for _act in ("allow", "deny", "pause", "resume", "cancel", "done", "now"):
+    sched_app.command(_act, help={"allow": "Let a waiting task use the tool it asked for", "deny": "Refuse it; Jade finds another way", "now": "Run this task next (tier 1)"}.get(_act, f"{_act.capitalize()} a task"))(
+        (lambda a: lambda tid: _sched_act(tid, a))(_act))
+
+
+@sched_app.command("on")
+def sched_on():
+    """Turn autonomous mode on (it runs inside `jade daemon` / `jade serve`)."""
+    j = _jade()
+    j.autonomy.set_on(True)
+    typer.echo(j.autonomy.status_text())
+
+
+@sched_app.command("off")
+def sched_off():
+    j = _jade()
+    j.autonomy.set_on(False)
+    typer.echo("Autonomous mode is off.")
+
+
+@sched_app.command("tick")
+def sched_tick():
+    """Run one slice now (if autonomous mode is on and allowed to run)."""
+    import asyncio as _a
+    j = _jade()
+    t = _a.run(j.autonomy.tick())
+    typer.echo(j.autonomy.line(t) if t else f"Nothing ran: {j.autonomy.status}")
+
+
+@app.command("plan")
+def plan_cmd(project: str = typer.Argument("", help="show this project's chart")):
+    """Plans (Gantt charts in /Jade/Projects): list the projects, or show one as a text chart with its report."""
+    from .tools.registry import ToolError
+    j = _jade()
+    try:
+        if project:
+            typer.echo(j.plans.tool({"action": "show", "project": project}, "user") + "\n\n" + j.plans.tool({"action": "report", "project": project}, "user"))
+        else:
+            typer.echo(j.plans.tool({"action": "projects"}, "user"))
+    except ToolError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2)
+
+
+@app.command("plan-do")
+def plan_do(action: str, args: list[str] = typer.Argument(None, help="key=value pairs, e.g. project=shed name=Frame days=3 deps=t1,t2")):
+    """Any gantt action as you: jade plan-do add project=shed name=Frame days=3 deps=t1"""
+    from .tools.registry import ToolError
+    a: dict = {"action": action}
+    for kv in args or []:
+        k, _, v = kv.partition("=")
+        a[k] = v
+    try:
+        typer.echo(_jade().plans.tool(a, "user"))
+    except ToolError as e:
+        typer.echo(f"error: {e}", err=True)
+        raise typer.Exit(2)

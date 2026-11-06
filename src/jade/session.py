@@ -46,6 +46,8 @@ class Session:
     _busy: bool = field(default=False, repr=False)
     allow_tools: set | None = field(default=None, repr=False)   # only these tools this run (curiosity wake-ups); not saved
     max_steps: int | None = field(default=None, repr=False)     # per-chat limit below settings.max_steps; not saved
+    block_tools: set | None = field(default=None, repr=False)   # offered, but refused as needing the user's approval (autonomous mode); not saved
+    blocked: list = field(default_factory=list, repr=False)     # the refused calls: [{"tool", "args"}]
     route: bool = field(default=True, repr=False)              # let the model router pick the model (off for background turns); not saved
     prompt_override: Any = field(default=None, repr=False)     # fn(jade, session) -> system prompt (bridge chats with people who are not the owner)
 
@@ -345,7 +347,7 @@ class Stepper:
             return
         s = self.s
         for c in [first] + self.pending:
-            if c.name not in self.PARALLEL or c.id in self._early or self._needs_approval(c) or (s.allow_tools is not None and c.name not in s.allow_tools):
+            if c.name not in self.PARALLEL or c.id in self._early or self._needs_approval(c) or (s.allow_tools is not None and c.name not in s.allow_tools) or bool(s.block_tools and c.name in s.block_tools):
                 continue
             q: asyncio.Queue[str] = asyncio.Queue()
             ctx = ToolContext(self.jade, s, c.id, emit=q.put_nowait)
@@ -363,6 +365,12 @@ class Stepper:
         t = jade.tools.get(c.name)
         if s.allow_tools is not None and c.name not in s.allow_tools:
             msg = f"Error: {c.name} is not available right now."
+            self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg, "error": True})
+            yield E.ToolEnd(c.id, c.name, msg, error=True)
+            return
+        if s.block_tools and c.name in s.block_tools:
+            s.blocked.append({"tool": c.name, "args": c.arguments})
+            msg = f"Error: {c.name} needs the user's approval in autonomous mode. It has been asked for; stop here and say what you wanted it for."
             self._tool_result({"role": "tool", "tool_call_id": c.id, "name": c.name, "content": msg, "error": True})
             yield E.ToolEnd(c.id, c.name, msg, error=True)
             return

@@ -180,6 +180,20 @@ Knowledge: **knowledge** (facts like `works_at(alice, acme)`, rules and constrai
 Datalog reasoner, the app's Rust engine as WebAssembly, that answers ✓ proven with its proof, ✗ contradicted or ? unknown.
 Jade's facts are proposed until you confirm them. `jade kg verify "works_at(alice, acme)"`, `jade kg check`.)
 
+Autonomy: **sched** (a 3-tier scheduler like an operating system's: tier 1 interrupts, tier 2 a priority queue with
+aging and deadlines, tier 3 round robin with 2/4/8-step slices and feedback; tasks are goals, prompts, flows,
+playbooks, shell commands or Lisp programs. **Autonomous mode** (`auto_on`, off by default; `jade sched on`) works
+through the queue inside `jade serve` / `jade daemon`, within steps an hour, a daily cap and quiet hours; tools in
+`auto_deny` wait for your Allow. Log and queue in `/Jade/Autonomy`; `jade sched status|list|add|allow|deny|…` and the
+dashboard's Queue page) and **gantt** (Gantt plans for long-term projects in `/Jade/Projects`, with dependencies,
+milestones, the critical path and reports; `jade plan PROJECT`, `jade plan-do add project=… name=…`, the Plans page.
+With autonomous mode on, Jade's ready plan tasks become tier 3 goals).
+
+Jade Lisp: **lisp** (a small Scheme/Clojure-style Lisp for DSLs and scripts that call any tool: `(tool/NAME :arg v)`,
+`jade/ask`, `jade/flow`, files, LiteRT; macros, tail calls, and `(sandbox :pure)` + `eval-in` with a fuel limit for
+programs someone else wrote. The same language as the app, checked against the app's own test cases. `jade lisp
+FILE.jl` or `jade lisp -e '(+ 1 2)'`; libraries and examples in `/Jade/Lisp`).
+
 Reasoning: **think** (a tree of thoughts where every line is checked by something that can say no: JavaScript run
 in a read-only sandbox, a shell command, a file check, a rubric or a judge; the best verified line wins; trees and
 episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and read-only tools unless `write: true`,
