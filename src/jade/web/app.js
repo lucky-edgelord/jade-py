@@ -721,6 +721,83 @@ PAGES.schedules = async v => {
   v.onclick = async e => { const b = e.target.closest('[data-act]'); if (!b) return; if (b.dataset.act === 'remove' && !(await confirmBox('Delete this schedule?', '', 'Delete', true))) return; try { const r = await tool('schedule', { action: b.dataset.act, id: b.dataset.id }); toast(String(r).split('\n')[0]); } catch (er) { toast(er.message, 'bad'); } route(); };
 };
 
+/* ---------------- Queue: autonomous mode and the 3-tier scheduler ---------------- */
+PAGES.queue = async v => {
+  const q = await api('/v1/sched');
+  const open = q.tasks.filter(t => !['done', 'failed', 'cancelled'].includes(t.state));
+  const L = q.limits, u = q.used;
+  const row = t => `<div class="row-item"><span class="dot ${t.state === 'running' ? 'busy' : t.state === 'ready' ? 'ok' : t.state === 'waiting' || t.state === 'blocked' ? 'warn' : ''}"></span>
+    <div class="col"><span class="t">${esc(t.id)} · ${esc(t.title)}</span><span class="d">${esc(t.kind)} · ${esc(t.state)}${t.tier === 2 ? ' · prio ' + t.prio : t.tier === 3 ? ' · level ' + t.level : ''} · ${t.slices} slices · ${t.steps} steps · by ${esc(t.by)}${t.gantt ? ' · plan' : ''}</span>
+    ${t.need ? `<span class="d" style="color:var(--yl)">wants to use <b>${esc(t.need.tool)}</b> ${esc(JSON.stringify(t.need.args || {}).slice(0, 140))}</span>` : ''}${t.why ? `<span class="d">${esc(t.why)}</span>` : ''}${t.error && t.state !== 'done' ? `<span class="d" style="color:var(--rd)">${esc(t.error)}</span>` : ''}</div>
+    ${t.need ? `<button class="btn btn-solid" data-q="allow" data-id="${esc(t.id)}">Allow</button><button class="btn btn-ghost" data-q="deny" data-id="${esc(t.id)}">Deny</button>` : ''}
+    ${t.tier !== 1 && t.state === 'ready' ? `<button class="btn btn-ghost" data-q="now" data-id="${esc(t.id)}">Run next</button>` : ''}
+    ${t.state === 'paused' || t.state === 'blocked' ? `<button class="btn btn-ghost" data-q="resume" data-id="${esc(t.id)}">Resume</button>` : t.state === 'ready' ? `<button class="btn btn-ghost" data-q="pause" data-id="${esc(t.id)}">Pause</button>` : ''}
+    ${t.state !== 'running' ? `<button class="btn btn-ghost" data-q="cancel" data-id="${esc(t.id)}">Cancel</button>` : ''}</div>`;
+  const tier = (n, name, help) => { const xs = open.filter(t => t.tier === n); return `<div class="pane" style="margin-top:12px"><div class="pane-h">Tier ${n} · ${name}<span class="grow"></span><span class="help">${xs.length}</span></div><div class="help">${help}</div>${xs.map(row).join('') || '<div class="help">Empty.</div>'}</div>`; };
+  const col = { 1: 'var(--rd)', 2: 'var(--yl)', 3: 'var(--ac, #1fe5a5)' };
+  v.innerHTML = `<h1 class="page">Queue <span class="chip ${q.on ? 'ok' : ''}">${q.on ? 'autonomous: ' + esc(q.status) : 'autonomous mode off'}</span></h1>
+    <div class="pane cut"><div class="row"><button class="btn ${q.on ? '' : 'btn-solid'}" id="qOn">${q.on ? 'Turn off' : 'Turn on autonomous mode'}</button>${q.on ? '<button class="btn btn-ghost" id="qStop">Stop now</button>' : ''}
+      <span class="help">${u.hour}/${L.steps_hour} steps this hour · ${u.day}/${L.daily} today · ${L.quiet_from === L.quiet_to ? 'no quiet hours' : `quiet ${L.quiet_from}:00–${L.quiet_to}:00`} · runs inside jade serve / jade daemon</span></div>
+      <div style="display:flex;gap:1px;height:12px;margin-top:10px;border:1px solid var(--line)">${(q.slices || []).map(r => `<span title="${esc(new Date(r.t * 1000).toLocaleTimeString() + ' ' + r.id + ' ' + r.title + ': ' + r.steps + ' steps, ' + r.outcome)}" style="flex:${Math.max(1, r.steps)};min-width:2px;background:${col[r.tier]};opacity:${r.outcome === 'error' || r.outcome === 'blocked' ? .4 : 1}"></span>`).join('')}</div></div>
+    ${tier(1, 'Interrupts', 'Always first, in arrival order.')}${tier(2, 'Priority queue', 'Highest priority first; waiting and deadlines raise it.')}${tier(3, 'Round robin', 'Long goals in turns: 2, 4 or 8 steps a slice by level.')}
+    <div class="pane" style="margin-top:12px"><div class="pane-h">Add a task</div><div class="row"><input class="field" id="qGoal" placeholder="Goal for Jade (what to achieve)" style="flex:1;min-width:200px">
+      <select class="field" id="qTier"><option value="3">Tier 3 · long goal</option><option value="2">Tier 2 · priority</option><option value="1">Tier 1 · interrupt</option></select><input class="field" id="qPrio" type="number" value="50" min="0" max="100" style="width:80px"><button class="btn btn-solid" id="qAdd">Add</button></div>
+      <div class="help">Limits and the tools that need your approval are in Settings → Autonomous mode.</div></div>
+    <div class="pane" style="margin-top:12px"><div class="pane-h">Recent slices</div><pre class="log" style="max-height:260px">${esc((q.slices || []).slice(-15).reverse().map(r => `${new Date(r.t * 1000).toLocaleTimeString()} ${r.id} T${r.tier} · ${r.steps} steps · ${r.outcome}${r.note ? ' — ' + r.note : ''}`).join('\n') || 'Nothing has run yet.')}</pre><div class="help">Full log: /Jade/Autonomy/log.md</div></div>`;
+  $('#qOn').onclick = async () => { await api('/v1/sched/' + (q.on ? 'off' : 'on'), { method: 'POST' }); route(); };
+  if ($('#qStop')) $('#qStop').onclick = async () => { await api('/v1/sched/stop', { method: 'POST' }); toast('Stopped'); route(); };
+  $('#qAdd').onclick = async () => { const g = $('#qGoal').value.trim(); if (!g) return; const tier = +$('#qTier').value; try { await api('/v1/sched/tasks', { method: 'POST', body: { goal: g, tier, kind: tier === 3 ? 'goal' : 'prompt', priority: +$('#qPrio').value } }); route(); } catch (e) { toast(e.message, 'bad'); } };
+  v.onclick = async e => { const b = e.target.closest('[data-q]'); if (!b) return; try { await api(`/v1/sched/tasks/${encodeURIComponent(b.dataset.id)}/${b.dataset.q}`, { method: 'POST' }); route(); } catch (err) { toast(err.message, 'bad'); } };
+};
+
+/* ---------------- Plans: Gantt charts ---------------- */
+PAGES.plans = async (v, parts) => {
+  const { projects } = await api('/v1/plans');
+  const pid = parts[0] || (projects[0] && projects[0].id) || '';
+  const head = `<h1 class="page">Plans</h1><div class="pane cut"><div class="row">${projects.map(p => `<a class="btn ${p.id === pid ? 'btn-solid' : 'btn-ghost'}" href="#/plans/${esc(p.id)}">${esc(p.name)} <span class="help">${p.done}/${p.tasks}</span></a>`).join('')}
+    <input class="field" id="pNew" placeholder="New project name" style="flex:1;min-width:160px"><button class="btn" id="pNewGo">+ Project</button></div></div>`;
+  if (!pid) { v.innerHTML = head + '<div class="empty">No plans yet. Make a project, or ask Jade to plan something big.</div>'; return wirePlans(v, pid); }
+  const r = await api('/v1/plans/' + encodeURIComponent(pid));
+  const p = r.project, crit = new Set(r.critical);
+  const day = s => Date.parse(s + 'T00:00:00') / 864e5;
+  const all = p.tasks.flatMap(t => [t.start, t.end]).concat([r.today]);
+  const d0 = Math.min(...all.map(day)) - 2, d1 = Math.max(...all.map(day)) + 3;
+  const W = Math.max(600, Math.min(1400, (d1 - d0) * 18)), dw = W / (d1 - d0), RH = 28, TOP = 26, LW = 210, H = TOP + p.tasks.length * RH + 10;
+  const x = s => LW + (day(s) - d0) * dw;
+  const color = { done: '#1fe5a5', ready: '#1fe5a5', blocked: '#ffc850', waiting: '#ffc850', late: '#ff6b7a', planned: '#7aa09a' };
+  let grid = '';
+  for (let d = Math.ceil(d0); d <= d1; d++) { const dt = new Date(d * 864e5); if (dt.getUTCDate() === 1 || dw > 14 || dt.getUTCDay() === 1) grid += `<line x1="${LW + (d - d0) * dw}" y1="${TOP - 4}" x2="${LW + (d - d0) * dw}" y2="${H}" stroke="rgba(255,255,255,.06)"/>` + (dt.getUTCDay() === 1 || dt.getUTCDate() === 1 ? `<text x="${LW + (d - d0) * dw + 2}" y="${TOP - 8}" fill="#7aa09a" font-size="10">${dt.getUTCDate()}/${dt.getUTCMonth() + 1}</text>` : ''); }
+  const row = Object.fromEntries(p.tasks.map((t, i) => [t.id, i]));
+  let links = '', bars = '';
+  p.tasks.forEach((t, i) => {
+    const y = TOP + i * RH + 5, st = r.states[t.id], c = color[st] || '#7aa09a', bx = x(t.start), bw = Math.max(dw, (day(t.end) - day(t.start) + 1) * dw);
+    for (const dId of t.deps) { const dd = p.tasks.find(z => z.id === dId); if (dd) links += `<path d="M${x(dd.end) + dw} ${TOP + row[dId] * RH + 14} H${x(dd.end) + dw + 6} V${y + 9} H${bx}" fill="none" stroke="${crit.has(t.id) && crit.has(dId) ? 'rgba(255,200,80,.8)' : 'rgba(180,200,195,.4)'}"/>`; }
+    bars += `<text x="6" y="${y + 13}" fill="#d8efe8" font-size="12">${esc((t.id + ' ' + t.name).slice(0, 28))}${t.owner === 'user' ? ' · you' : ''}</text>` +
+      (t.milestone ? `<path d="M${bx + dw / 2} ${y} l9 9 l-9 9 l-9 -9 z" fill="${c}"/>` :
+        `<rect x="${bx}" y="${y}" width="${bw}" height="18" fill="${c}33" stroke="${c}" stroke-width="${crit.has(t.id) ? 2 : 1}"${t.owner === 'user' ? ' stroke-dasharray="3 2"' : ''}/><rect x="${bx}" y="${y}" width="${bw * t.progress / 100}" height="18" fill="${c}99"/>`);
+  });
+  const tx = x(r.today) + dw / 2;
+  v.innerHTML = head + `<div class="pane" style="margin-top:12px"><div class="pane-h">${esc(p.name)}<span class="grow"></span><button class="btn btn-ghost" id="pPlan">Plan (push after dependencies)</button></div>${p.description ? `<div class="help">${esc(p.description)}</div>` : ''}
+      <div class="scroll-x"><svg width="${W + 20}" height="${H}" style="display:block">${grid}${links}<line x1="${tx}" y1="0" x2="${tx}" y2="${H}" stroke="#ffc850" stroke-dasharray="4 3"/>${bars}</svg></div>
+      <div class="help">Green ready or done · amber blocked or waiting · red late · dashed: yours · thick edge: critical path. Finishes ${esc(r.finish || '')}.</div></div>
+    <div class="grid2" style="margin-top:12px"><div class="pane"><div class="pane-h">Report</div><pre class="log">${esc(r.report)}</pre></div>
+      <div class="pane"><div class="pane-h">Add or change a task</div>
+        <div class="row"><input class="field" id="tName" placeholder="Task name (or id to change)" style="flex:1;min-width:160px"></div>
+        <div class="row" style="margin-top:6px"><input class="field" id="tStart" type="date"><input class="field" id="tDays" type="number" min="1" value="1" style="width:70px" title="days"><select class="field" id="tOwner"><option value="user">You</option><option value="jade">Jade</option></select><input class="field" id="tProg" type="number" min="0" max="100" placeholder="%" style="width:70px"></div>
+        <div class="row" style="margin-top:6px"><input class="field" id="tDeps" placeholder="After (ids: t1, t2)" style="flex:1"><label class="help"><input type="checkbox" id="tMs"> milestone</label><button class="btn btn-solid" id="tAdd">Add</button><button class="btn" id="tUpd">Update</button><button class="btn btn-ghost" id="tDel">Remove</button></div></div></div>`;
+  wirePlans(v, pid);
+};
+function wirePlans(v, pid) {
+  const go = async (body, msg) => { try { const r = await api('/v1/plans', { method: 'POST', body }); toast(msg || r.result.split('\n')[0]); route(); } catch (e) { toast(e.message, 'bad'); } };
+  $('#pNewGo').onclick = async () => { const n = $('#pNew').value.trim(); if (!n) return; await go({ action: 'create', name: n }); location.hash = '#/plans/' + n.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''); };
+  if (!pid) return;
+  $('#pPlan').onclick = () => go({ action: 'plan', project: pid });
+  const f = () => { const o = { project: pid, owner: $('#tOwner').value, milestone: $('#tMs').checked }; if ($('#tStart').value) o.start = $('#tStart').value; if ($('#tDays').value) o.days = +$('#tDays').value; if ($('#tProg').value !== '') o.progress = +$('#tProg').value; if ($('#tDeps').value.trim()) o.deps = $('#tDeps').value; return o; };
+  $('#tAdd').onclick = () => go({ action: 'add', name: $('#tName').value, ...f() });
+  $('#tUpd').onclick = () => go({ action: 'update', task: $('#tName').value, ...f() });
+  $('#tDel').onclick = () => go({ action: 'remove', task: $('#tName').value, project: pid });
+}
+
 /* ---------------- Sentry ---------------- */
 const SY_PATH = '/Jade/Config/Sentry.json';
 async function sentryFile() { try { return JSON.parse((await api('/v1/vault/file?path=' + encodeURIComponent(SY_PATH))).content); } catch { return { enabled: false, systems: {}, triggers: [] }; } }
@@ -810,6 +887,7 @@ const GROUPS = [
   ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
   ['Trajectory log (fine-tuning data; 👍/👎 for DPO / KTO)', ['traj_on', 'traj_format', 'traj_filter', 'traj_thinking', 'traj_meta']],
   ['Knowledge graph (facts, rules, and verification with proofs)', ['kg_verify']],
+  ['Autonomous mode (the 3-tier scheduler; the Queue page)', ['auto_on', 'auto_steps_hour', 'auto_daily', 'auto_quiet_from', 'auto_quiet_to', 'auto_share', 'auto_gantt', 'auto_deny']],
   ['Model router (laya picks the model for each turn)', ['router_on', 'router_models', 'router_decider', 'router_min_confidence']],
   ['The agent', ['approve', 'max_steps', 'tool_router', 'bash_timeout', 'shell', 'max_tool_output', 'memory_lines', 'journal', 'think_on', 'delegate_on', 'timezone']],
   ['Hearing (talk mode through jade-py)', ['stt_provider', 'stt_model']],
