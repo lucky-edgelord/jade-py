@@ -457,3 +457,38 @@ async def test_openrouter(jade, server, monkeypatch):
     st.openrouter_key, st.provider, st.api_key = "", "ollama", ""
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     assert (await R.decide_data(jade, "x", "q", "yesno"))["answer"] is True   # the key from the environment
+
+
+# ---------------------------------------------------------------- decisions and routing on Ollama Cloud (Jade Vault 2.28)
+async def test_ollama_cloud_decisions_and_router(jade, server, monkeypatch):
+    def systemone(h, body):
+        if h.headers.get("authorization") not in ("Bearer cloud-key", "Bearer override", "Bearer env-key"):
+            return 401, "application/json", J({"error": "unauthorized"})
+        b = json.loads(body)
+        q = b["questions"]["q"]
+        a = {"noul": True, "confidence": 0.91, "probabilities": {"yes": 0.91, "no": 0.09}} if q["type"] == "noul" else {"choice": 1, "confidence": 0.82, "probabilities": [0.18, 0.82]}
+        return 200, "application/json", J({"model": b["model"], "answers": {"q": a}})
+    server.routes[("POST", "/v1/systemone")] = systemone
+    st = jade.settings
+    st.decide_provider, st.ollama_cloud_base, st.ollama_key, st.ollaya_key, st.ollaya_model = "ollama-cloud", server.url, "cloud-key", "", "laya"
+    assert R.decide_server(st)[0] == "Ollama Cloud"
+    r = await jade.run_tool("decide", {"state": "s", "question": "q", "type": "choice", "options": ["a", "b"]})
+    assert r.startswith("choice: 1 | confidence 0.820") and "model: laya" in r
+    assert server.seen[-1]["headers"].get("Authorization") == "Bearer cloud-key"
+    st.ollaya_key = "override"
+    assert (await R.decide_data(jade, "x", "late?", "yesno"))["answer"] is True and server.seen[-1]["headers"].get("Authorization") == "Bearer override"
+    st.ollaya_key = st.ollama_key = ""
+    monkeypatch.setenv("OLLAMA_API_KEY", "env-key")
+    assert (await R.decide_data(jade, "x", "late?", "yesno"))["answer"] is True
+    monkeypatch.setenv("OLLAMA_API_KEY", "wrong")
+    from jade.tools.registry import ToolError
+    with pytest.raises(ToolError, match="Ollama Cloud said 401"):
+        await R.decide_data(jade, "x", "late?", "yesno")
+    st.ollama_key = "cloud-key"
+    # the model router decides with jev on Ollama Cloud and can route to an Ollama Cloud model
+    from jade import modelrouter as MR
+    st.router_on, st.router_decider = True, "jev"
+    st.router_models = [{"model": "ollama:qwen3:8b", "note": "everyday chat"}, {"model": "ollama-cloud:gpt-oss:120b", "note": "hard reasoning"}]
+    route = await MR.pick(jade, [{"role": "user", "content": "prove this lemma"}])
+    assert route and route.provider == "ollama-cloud" and route.model == "gpt-oss:120b" and route.confidence == 0.82, route
+    assert json.loads(server.seen[-1]["body"])["model"] == "jev"

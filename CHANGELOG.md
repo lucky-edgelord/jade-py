@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+Ollama Cloud for decisions and the model router, as in Jade Vault 2.28.
+
+- `decide_provider = "ollama-cloud"`: the decision models (laya, jev…) on ollama.com's `/v1/systemone`, with `ollama_key` (`ollaya_key` wins when set; `OLLAMA_API_KEY` when neither is). `decide`, scripts' `jade.decide`, the think tool's decide checks and the model router (`router_decider = "jev"`) use it; the router can still route turns to `ollama-cloud:…` models.
+
 ## 0.14.0
 
 OpenRouter, as in Jade Vault 2.27.
