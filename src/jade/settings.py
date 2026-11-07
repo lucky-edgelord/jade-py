@@ -143,10 +143,9 @@ class Settings(BaseSettings):
     embed_model: str = "nomic-embed-text"
     embed_host: str = ""
 
-    # decisions: Ollaya, or Ollama 0.35+ (the same /v1/systemone API); the decision model is ollaya_model on either
-    decide_provider: Literal["ollaya", "ollama", "openrouter"] = Field(default="ollaya", description="the decision server: ollaya, ollama (0.35 and newer), or openrouter (ollaya_model is then an OpenRouter model with log probabilities, e.g. openai/gpt-4o-mini)")
-    openrouter_key: str = Field(default="", description="OpenRouter API key for decisions (blank: OPENROUTER_API_KEY, or api_key when the provider is openrouter)")
-    openrouter_base: str = "https://openrouter.ai/api/v1"
+    # decisions: Ollaya, Ollama 0.35+ or Ollama Cloud (/v1/systemone); the decision model is ollaya_model on each
+    decide_provider: Literal["ollaya", "ollama", "ollama-cloud"] = Field(default="ollaya", description="the decision server: ollaya, ollama (0.35 and newer), or ollama-cloud (https://ollama.com with ollama_key; the model is clef)")
+    openrouter_key: str = Field(default="", description="OpenRouter API key, for OpenRouter as the provider or a fallback (blank: OPENROUTER_API_KEY, or api_key when the provider is openrouter)")
     ollaya_host: str = "http://localhost:11435"
     ollaya_model: str = ""
     ollaya_key: str = ""
@@ -209,6 +208,13 @@ class Settings(BaseSettings):
     stt_model: str = Field(default="", description="the transcription model, e.g. whisper-large-v3-turbo (Groq) or whisper-1 (OpenAI); empty = off")
     look_images: bool = Field(default=True, description="show pictures (camera, screenshots, look) to the model; off for models without vision")
 
+    @field_validator("decide_provider", mode="before")
+    @classmethod
+    def _decide_provider(cls, v):
+        # OpenRouter was a decision server in 0.14 (removed); "cloud" is the app's name for Ollama Cloud
+        v = str(v or "ollaya").strip().lower()
+        return {"openrouter": "ollaya", "cloud": "ollama-cloud", "ollamacloud": "ollama-cloud"}.get(v, v)
+
     @field_validator("usb_allow", "onnx_providers", mode="before")
     @classmethod
     def _split_list(cls, v):
@@ -265,4 +271,6 @@ class Settings(BaseSettings):
         if self.base_url and (provider is None or provider == self.provider):
             base = self.base_url
         key = self.api_key if (provider is None or provider == self.provider) and self.api_key else (os.environ.get(env, "") if env else "")
+        if not key and name == "openrouter":
+            key = self.openrouter_key   # OpenRouter as a fallback (or the provider) with its key in the config
         return base.rstrip("/"), key

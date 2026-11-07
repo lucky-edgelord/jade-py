@@ -1,6 +1,6 @@
 """Reasoning extras, ported from the app:
 
-- decide: the local Ollaya decision model judges a piece of text (calibrated probabilities, not prose);
+- decide: a decision model (Ollaya, Ollama or Ollama Cloud) judges a piece of text (calibrated probabilities, not prose);
 - delegate: a sub-agent with its own clean context returns one short report;
 - think: a tree of thoughts with verification. Lines of reasoning are branched, each one is checked by something that
   can say no (run code, run a shell command, look at a file, a rubric, a judge), and the best VERIFIED line wins. The
@@ -30,9 +30,17 @@ if TYPE_CHECKING:
     from .core import Jade
 
 
-# ================================================================ decide (Ollaya, or Ollama 0.35+)
+# ================================================================ decide (Ollaya, Ollama 0.35+, or Ollama Cloud)
+OLLAMA_CLOUD = "https://ollama.com"
+DECIDERS = re.compile(r"^(clef|clef-flash|laya|jev|nimble|tev1|kev|winnow|largha|decider)(?=$|[:\-])", re.I)
+
+
 def decide_server(st) -> tuple[str, str, dict]:
-    """(name, base URL, headers) of the decision server: Ollaya, or Ollama (same /v1/systemone API)."""
+    """(name, base URL, headers) of the decision server: Ollaya, Ollama, or Ollama Cloud (POST https://ollama.com/v1/systemone
+    with the API key as a Bearer token, per docs.ollama.com/api/systemone)."""
+    if st.decide_provider == "ollama-cloud":
+        key = st.ollaya_key or st.ollama_key
+        return "Ollama Cloud", OLLAMA_CLOUD, {"Authorization": "Bearer " + key} if key else {}
     if st.decide_provider == "ollama":
         base = (st.decide_ollama_host or st.host or "http://localhost:11434").rstrip("/")
         headers = {"Authorization": "Bearer " + st.ollama_key} if st.ollama_key and base.startswith("https://ollama.com") else {}
@@ -42,6 +50,76 @@ def decide_server(st) -> tuple[str, str, dict]:
         headers = {"Authorization": "Bearer " + st.ollaya_key} if st.ollaya_key else {}
         name = "Ollaya"
     return name, base, {**headers, **st.fleet_headers(base)}
+
+
+def _opt_key(opts: list[str], i: int) -> str:
+    """An option's key for Ollama: the option itself when short and unique, else option_N."""
+    o = str(opts[i]).strip()
+    unique = [str(x).strip() for x in opts].index(o) == i
+    return o if unique and 0 < len(o) <= 100 else f"option_{i + 1}"
+
+
+def ollama_request(body: dict, cloud: bool) -> tuple[dict, dict]:
+    """Ollaya-shaped /v1/systemone request -> Ollama's: a choice question's criteria is an object {key: description}.
+    Returns (request, {question: (keys, options)}) for mapping the answers back. On ollama.com the model has no :cloud suffix."""
+    maps, qs = {}, {}
+    for name, q in (body.get("questions") or {}).items():
+        nq = dict(q)
+        if (q.get("type") or "choice") == "choice" and isinstance(q.get("criteria"), list):
+            keys = [_opt_key(q["criteria"], i) for i in range(len(q["criteria"]))]
+            nq["criteria"] = {k: str(q["criteria"][i]) for i, k in enumerate(keys)}
+            maps[name] = (keys, [str(x) for x in q["criteria"]])
+        qs[name] = nq
+    model = str(body.get("model") or "")
+    if cloud:
+        model = re.sub(r"[:\-]cloud$", "", model, flags=re.I)
+    return {**body, "model": model, "questions": qs}, maps
+
+
+def ollama_answer(a: dict, m: tuple[list[str], list[str]] | None) -> dict:
+    """Ollama's answer -> Ollaya's shape: the chosen option's text, probabilities keyed by option; a noul answer (the
+    probability of true) becomes a boolean with probabilities and a confidence."""
+    if not isinstance(a, dict):
+        return a
+    out = dict(a)
+    if "choice" in a and m:
+        keys, opts = m
+        c = a["choice"]
+        i = c if isinstance(c, int) and not isinstance(c, bool) else keys.index(str(c)) if str(c) in keys else -1
+        if 0 <= i < len(opts):
+            out["choice"] = opts[i]
+        if isinstance(a.get("probabilities"), dict):
+            out["probabilities"] = {opts[j]: float(a["probabilities"].get(k) or 0) for j, k in enumerate(keys)}
+    if isinstance(a.get("noul"), (int, float)) and not isinstance(a.get("noul"), bool):
+        p = max(0.0, min(1.0, float(a["noul"])))
+        out["noul"], out["p_true"] = p >= 0.5, p
+        out["probabilities"] = {"no": round(1 - p, 6), "yes": round(p, 6)}
+        if out.get("confidence") is None:
+            out["confidence"] = round(max(p, 1 - p), 6)
+    return out
+
+
+async def decide_models(st) -> list[str]:
+    """The decision models the server lists (on Ollama and Ollama Cloud, only decision models, not chat models)."""
+    name, base, headers = decide_server(st)
+    try:
+        async with httpx.AsyncClient(timeout=30) as h:
+            r = await h.get(base + "/api/tags", headers=headers)
+    except httpx.HTTPError as e:
+        raise ToolError(f"could not reach {name} at {base}: {e}") from None
+    if r.status_code >= 400:
+        raise ToolError(f"{name} said {r.status_code}: {r.text[:200]}")
+    ms = [m for m in (r.json().get("models") or []) if m.get("name") or m.get("model")]
+    names = [m.get("name") or m.get("model") for m in ms]
+    if name == "Ollaya":
+        return names
+    caps = {m.get("name") or m.get("model"): m.get("capabilities") or (m.get("details") or {}).get("capabilities") or [] for m in ms}
+    out = [n for n in names if "decision" in caps.get(n, []) or DECIDERS.match(n)]
+    if name == "Ollama Cloud":
+        out = [re.sub(r"[:\-]cloud$", "", n, flags=re.I) for n in out]
+        if "clef" not in out:
+            out.insert(0, "clef")
+    return list(dict.fromkeys(out))
 
 
 async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: str = "choice", options=None, model: str = "") -> dict:   # noqa: A002
@@ -64,14 +142,20 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
     elif t != "noul":
         raise ToolError("type must be choice, score or yesno")
     body = {"model": model, "state": state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, default=str), "questions": {"q": q}}
-    if st.decide_provider == "openrouter":
-        return _decide_out(await openrouter_systemone(st, body), type, t, model, "OpenRouter")
     name, base, headers = decide_server(st)
+    ollama = name in ("Ollama", "Ollama Cloud")
+    maps: dict = {}
+    if ollama:
+        body, maps = ollama_request(body, name == "Ollama Cloud")
+    if name == "Ollama Cloud" and not headers:
+        raise ToolError("no Ollama Cloud API key (ollama_key, or ollaya_key)")
     try:
         async with httpx.AsyncClient(timeout=60) as h:
             r = await h.post(base + "/v1/systemone", json=body, headers=headers)
     except httpx.HTTPError as e:
         hint = '"ollaya serve"' if name == "Ollaya" else "Ollama 0.35 or newer"
+        if name == "Ollama Cloud":
+            raise ToolError(f"could not reach Ollama Cloud at {OLLAMA_CLOUD}: {e}") from None
         raise ToolError(f"could not reach {name} at {base}. Is {hint} running? ({e})") from None
     if r.status_code >= 400:
         try:
@@ -80,8 +164,14 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
             m = r.text
         if name == "Ollama" and r.status_code == 404 and "systemone" not in str(m):
             m = f"{m} (decisions need Ollama 0.35 or newer)"
+        if name == "Ollama Cloud":
+            m = f"{m}" + {401: " (the Ollama Cloud API key was rejected)", 402: " (cloud decision models need a paid Ollama plan or usage credits)",
+                          404: f' (Ollama Cloud has no decision model "{body["model"]}"; try clef)'}.get(r.status_code, "")
         raise ToolError(f"{name} said {r.status_code}: {str(m)[:300]}")
-    return _decide_out(r.json(), type, t, model, name)
+    j = r.json()
+    if ollama:
+        j = {**j, "answers": {k: ollama_answer(a, maps.get(k)) for k, a in (j.get("answers") or {}).items()}}
+    return _decide_out(j, type, t, body["model"], name)
 
 
 def _decide_out(j: dict, type: str, t: str, model: str, name: str) -> dict:   # noqa: A002
@@ -100,110 +190,6 @@ def _decide_out(j: dict, type: str, t: str, model: str, name: str) -> dict:   # 
     if "noul" in ans:
         out["answer"] = out["result"] = ans["noul"]
     return out
-
-
-# ---- decisions through OpenRouter: the same /v1/systemone answers, from a model's log probabilities (as in the app)
-LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-
-def openrouter_key(st) -> str:
-    import os
-    if st.openrouter_key:
-        return st.openrouter_key
-    if os.environ.get("OPENROUTER_API_KEY"):
-        return os.environ["OPENROUTER_API_KEY"]
-    return st.api_key if st.provider == "openrouter" else ""
-
-
-async def _or_post(st, body: dict) -> dict:
-    from .providers.openai import OPENROUTER_HEADERS
-    key = openrouter_key(st)
-    if not key:
-        raise ToolError("no OpenRouter API key (openrouter_key, or OPENROUTER_API_KEY)")
-    try:
-        async with httpx.AsyncClient(timeout=60) as h:
-            r = await h.post(st.openrouter_base.rstrip("/") + "/chat/completions", json=body, headers={"Authorization": "Bearer " + key, **OPENROUTER_HEADERS})
-    except httpx.HTTPError as e:
-        raise ToolError(f"could not reach OpenRouter: {e}") from None
-    try:
-        j = r.json()
-    except ValueError:
-        j = {}
-    if r.status_code >= 400 or j.get("error"):
-        e = j.get("error")
-        m = (e.get("message") if isinstance(e, dict) else e) or r.text[:300]
-        raise ToolError("OpenRouter rejected the API key (401)" if r.status_code == 401 else "OpenRouter: no credits left (402)" if r.status_code == 402 else f"OpenRouter: {m}")
-    return j
-
-
-def _probs_from_logprobs(lp, letters: list[str]) -> list[float] | None:
-    first = ((lp or {}).get("content") or [None])[0]
-    if not first:
-        return None
-    cands = list(first.get("top_logprobs") or []) + [{"token": first.get("token"), "logprob": first.get("logprob")}]
-    p, seen, used = [0.0] * len(letters), False, set()
-    for c in cands:
-        tok = re.sub(r"[.):\s]+$", "", str(c.get("token") or "").strip()).upper()
-        lpv = c.get("logprob")
-        if tok not in letters or not isinstance(lpv, (int, float)) or (tok, lpv) in used:
-            continue
-        used.add((tok, lpv))
-        p[letters.index(tok)] += math.exp(lpv)
-        seen = True
-    if not seen:
-        return None
-    s = sum(p)
-    return [x / s for x in p]
-
-
-async def openrouter_systemone(st, body: dict) -> dict:
-    """Answer a /v1/systemone request with an OpenRouter model: the options are lettered, the model answers with one
-    letter, and the probabilities are read from that token's log probabilities (a model without them is asked for
-    probabilities as JSON)."""
-    model = body["model"]
-    out = {}
-    for name, q in (body.get("questions") or {}).items():
-        t = q.get("type") or "choice"
-        opts = ["no", "yes"] if t == "noul" else [str(x) for x in (q.get("criteria") or [])]
-        if len(opts) < 2:
-            raise ToolError(f"question {name}: needs at least 2 options")
-        if len(opts) > len(LETTERS):
-            raise ToolError(f"question {name}: OpenRouter decisions take at most {len(LETTERS)} options")
-        L = list(LETTERS[:len(opts)])
-        listing = "\n".join(f"{L[i]}. {o}" for i, o in enumerate(opts))
-        ask = f"{q.get('instructions', '')}\n\n" + ("A. no\nB. yes" if t == "noul" else ("Levels, lowest first:\n" if t == "score" else "Options:\n") + listing)
-        messages = [{"role": "system", "content": "You are a careful, calibrated classifier. Read the text, then answer the question with the letter of the best option and nothing else."},
-                    {"role": "user", "content": f"Text:\n{str(body.get('state') or '')[:24000]}\n\nQuestion: {ask}\n\nAnswer with one letter ({L[0]}-{L[-1]})."}]
-        j = await _or_post(st, {"model": model, "messages": messages, "temperature": 0, "max_tokens": 1, "logprobs": True, "top_logprobs": 20})
-        ch = (j.get("choices") or [{}])[0]
-        probs = _probs_from_logprobs(ch.get("logprobs"), L)
-        if probs is None:
-            probs = await _probs_from_json(st, model, messages, L, str((ch.get("message") or {}).get("content") or ""))
-        best = max(range(len(probs)), key=lambda i: probs[i])
-        a: dict = {"type": t, "probabilities": {(o if t == "noul" else str(i)): round(probs[i], 6) for i, o in enumerate(opts)}, "confidence": round(probs[best], 6)}
-        if t == "choice":
-            a["choice"] = best
-        elif t == "score":
-            a["score"], a["legend"] = best, opts[best]
-        else:
-            a["noul"] = best == 1
-        out[name] = a
-    return {"model": model, "answers": out, "via": "openrouter"}
-
-
-async def _probs_from_json(st, model, messages, L, said: str) -> list[float]:
-    try:
-        content = re.sub(r"\n\nAnswer with one letter[\s\S]*$", "", messages[1]["content"]) + "\n\nReply with JSON only: {\"probabilities\": {" + ", ".join(f'"{x}": number' for x in L) + "}}, your probability for each option, summing to 1."
-        j = await _or_post(st, {"model": model, "temperature": 0, "max_tokens": 400, "response_format": {"type": "json_object"}, "messages": [messages[0], {"role": "user", "content": content}]})
-        txt = str(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
-        o = json.loads(txt[txt.index("{"):txt.rindex("}") + 1]).get("probabilities") or {}
-        p = [max(0.0, float(o.get(x) or 0)) for x in L]
-        if sum(p) > 0:
-            return [x / sum(p) for x in p]
-    except (ToolError, ValueError, TypeError, AttributeError):
-        pass
-    i = L.index(said.strip()[:1].upper()) if said.strip()[:1].upper() in L else -1
-    return [1 / len(L)] * len(L) if i < 0 else [1.0 if k == i else 0.0 for k in range(len(L))]
 
 
 def decide_text(o: dict) -> str:
