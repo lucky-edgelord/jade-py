@@ -32,7 +32,7 @@ WEB = Path(__file__).parent / "web"
 SECRET = re.compile(r"(token|key|pass|secret)$|^secrets$", re.I)
 MASK = "••••••"
 # changing these needs a new model client
-PROVIDER_FIELDS = {"provider", "model", "host", "base_url", "api_key", "fallbacks", "request_timeout", "temperature", "num_ctx", "think", "keep_alive"}
+PROVIDER_FIELDS = {"provider", "model", "host", "base_url", "api_key", "fallbacks", "openrouter_key", "request_timeout", "temperature", "num_ctx", "think", "keep_alive"}
 # changing these needs a restart of jade serve
 RESTART_FIELDS = {"vault", "data_dir", "api_host", "api_port"}
 MAX_EDIT = 2_000_000

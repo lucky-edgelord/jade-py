@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.15.1
+
+As in Jade Vault 2.28.1.
+
+- **Decisions on Ollama Cloud** (`decide_provider = "ollama-cloud"`, key in `ollama_key` or `ollaya_key`, model `clef`): `POST https://ollama.com/v1/systemone` as docs.ollama.com/api/systemone describes it. Requests and answers are translated to and from Ollama's format, for local Ollama too: a choice question's options become named keys, the winning key and its probabilities map back to the options, and a yes/no answer (the probability of true) becomes yes/no with probabilities and a confidence. `reasoning.decide_models()` lists only decision models. Errors name the fix (401 key, 402 paid plan, 404 try clef).
+- **OpenRouter is no longer a decision server.** A saved `decide_provider = "openrouter"` reads as `"ollaya"`.
+- **OpenRouter as a fallback** takes its key from `openrouter_key` too (before, only `OPENROUTER_API_KEY` worked for a fallback). The dashboard shows `openrouter_key` with the model settings, and backups leave it out like the other keys.
+
 ## 0.14.0
 
 OpenRouter, as in Jade Vault 2.27.

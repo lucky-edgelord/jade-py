@@ -68,14 +68,20 @@ def J(o) -> bytes:
 
 # ---------------------------------------------------------------- decisions from Ollama
 async def test_decide_on_ollama(jade, server):
-    def systemone(h, body):
+    def systemone(h, body):   # Ollama's format: criteria is an object, the answer names the winning key
         q = json.loads(body)["questions"]["q"]
-        return 200, "application/json", J({"model": "judge-o", "answers": {"q": {"choice": q["criteria"][0], "confidence": 0.9, "probabilities": {q["criteria"][0]: 0.9, q["criteria"][1]: 0.1}}}})
+        if q["type"] == "noul":
+            return 200, "application/json", J({"model": "judge-o", "answers": {"q": {"type": "noul", "noul": 0.2}}})
+        assert isinstance(q["criteria"], dict), q
+        k = list(q["criteria"])
+        return 200, "application/json", J({"model": "judge-o", "answers": {"q": {"type": "choice", "choice": k[0], "confidence": 0.9, "probabilities": {k[0]: 0.9, k[1]: 0.1}}}})
     server.routes[("POST", "/v1/systemone")] = systemone
     st = jade.settings
     st.ollaya_model, st.decide_provider, st.host = "judge-o", "ollama", server.url
     r = await jade.run_tool("decide", {"state": "s", "question": "q", "type": "choice", "options": ["a", "b"]})
-    assert r.startswith("choice: a") and server.seen[-1]["path"] == "/v1/systemone"   # the Ollama address (host), since decide_ollama_host is empty
+    assert r.startswith("choice: a | confidence 0.900") and "probabilities: a 0.900, b 0.100" in r and server.seen[-1]["path"] == "/v1/systemone", r   # the Ollama address (host), since decide_ollama_host is empty
+    d = await R.decide_data(jade, "s", "late?", "yesno")
+    assert d["answer"] is False and d["probabilities"] == {"no": 0.8, "yes": 0.2} and d["confidence"] == 0.8   # noul is the probability of true
     st.decide_ollama_host = "http://127.0.0.1:9"   # nothing listens there
     with pytest.raises(RuntimeError, match="could not reach Ollama at http://127.0.0.1:9. Is Ollama 0.35 or newer running"):
         await jade.run_tool("decide", {"state": "s", "question": "q", "type": "yesno"})
@@ -410,26 +416,15 @@ async def test_fleet(jade, server, fake):
     assert "fleet_token" in SECRET_KEYS
 
 
-# ---------------------------------------------------------------- OpenRouter: a provider and a decision server (Jade Vault 2.27)
+# ---------------------------------------------------------------- OpenRouter: a provider and a fallback (Jade Vault 2.27, 2.28.1); not a decision server
 async def test_openrouter(jade, server, monkeypatch):
-    import math as _m
-    from jade.providers import make_provider
-    logprobs = {"on": True}
+    from jade.providers import FallbackProvider, make_provider
+    from jade.settings import Settings
 
     def models(h, body):
         return 200, "application/json", J({"data": [{"id": "anthropic/claude-sonnet-4.5", "supported_parameters": ["tools"]}, {"id": "openai/gpt-4o-mini", "supported_parameters": ["tools", "logprobs", "top_logprobs"]},
                                                     {"id": "some/base", "supported_parameters": ["temperature"]}]})
-
-    def chat(h, body):
-        b = json.loads(body)
-        if h.headers.get("authorization") != "Bearer sk-or-test":
-            return 401, "application/json", J({"error": {"message": "No auth credentials found"}})
-        if b.get("response_format"):
-            return 200, "application/json", J({"choices": [{"message": {"content": '{"probabilities": {"A": 0.2, "B": 0.6, "C": 0.2}}'}}]})
-        top = [{"token": "B", "logprob": _m.log(0.7)}, {"token": "A", "logprob": _m.log(0.2)}, {"token": " C", "logprob": _m.log(0.05)}, {"token": "The", "logprob": _m.log(0.05)}]
-        return 200, "application/json", J({"choices": [{"message": {"content": "B"}, "logprobs": {"content": [{"token": "B", "logprob": _m.log(0.7), "top_logprobs": top}]} if logprobs["on"] else None}]})
     server.routes[("GET", "/api/v1/models")] = models
-    server.routes[("POST", "/api/v1/chat/completions")] = chat
     st = jade.settings
     # the provider: OpenRouter's address (here the stand-in), its attribution headers, and only the models that take tools
     st.provider, st.base_url, st.api_key = "openrouter", server.url + "/api/v1", "sk-or-test"
@@ -438,22 +433,84 @@ async def test_openrouter(jade, server, monkeypatch):
     assert st.openai_base_and_key("openrouter")[0] == server.url + "/api/v1"
     from jade.providers.openai import OpenAIProvider
     assert OpenAIProvider("https://openrouter.ai/api/v1", api_key="k").headers["X-Title"] == "Jade"
-    # decisions
-    st.decide_provider, st.ollaya_model, st.openrouter_base, st.openrouter_key = "openrouter", "openai/gpt-4o-mini", server.url + "/api/v1", ""
+    # a fallback: its key comes from openrouter_key (or OPENROUTER_API_KEY)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    st.provider, st.base_url, st.api_key, st.openrouter_key = "ollama", "", "", "sk-or-cfg"
+    st.fallbacks = ["openrouter:anthropic/claude-sonnet-4.5"]
+    fp = make_provider(st)
+    try:
+        assert isinstance(fp, FallbackProvider) and fp.providers[1].name == "openrouter"
+        assert fp.providers[1].base == "https://openrouter.ai/api/v1" and fp.providers[1].model == "anthropic/claude-sonnet-4.5"
+        assert fp.providers[1].headers["Authorization"] == "Bearer sk-or-cfg" and fp.providers[1].headers["X-Title"] == "Jade"
+    finally:
+        await fp.aclose()
+    st.openrouter_key = ""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-env")
+    assert st.openai_base_and_key("openrouter")[1] == "sk-or-env"
+    st.fallbacks = []
+    from jade.backup import SECRET_KEYS
+    assert "openrouter_key" in SECRET_KEYS
+    # no longer a decision server: a saved "openrouter" falls back to Ollaya
+    assert Settings(decide_provider="openrouter").decide_provider == "ollaya"
+    assert Settings(decide_provider="cloud").decide_provider == "ollama-cloud"
+    assert not hasattr(R, "openrouter_systemone")
+
+
+# ---------------------------------------------------------------- decisions on Ollama Cloud (docs.ollama.com/api/systemone)
+async def test_decide_on_ollama_cloud(jade, server, monkeypatch):
+    seen = []
+
+    def tags(h, body):
+        return 200, "application/json", J({"models": [{"name": "gpt-oss:120b"}, {"name": "clef"}, {"name": "qwen3-coder:480b"}, {"name": "clef-flash"}]})
+
+    def systemone(h, body):
+        b = json.loads(body)
+        seen.append({"auth": h.headers.get("authorization"), "body": b})
+        if h.headers.get("authorization") not in ("Bearer cloud-key", "Bearer override"):
+            return 401, "application/json", J({"error": "unauthorized"})
+        if b["model"] not in ("clef", "clef-flash"):
+            return 404, "application/json", J({"error": f'model "{b["model"]}" not found'})
+        q = b["questions"]["q"]
+        if q["type"] == "noul":
+            a = {"type": "noul", "noul": 0.91}
+        elif q["type"] == "score":
+            a = {"type": "score", "score": 1.4, "legend": {"0": "low", "1": "medium", "2": "high"}, "probabilities": {"0": 0.1, "1": 0.4, "2": 0.5}, "confidence": 0.3}
+        else:
+            if not isinstance(q["criteria"], dict):
+                return 400, "application/json", J({"error": "criteria must be an object"})
+            k = list(q["criteria"])
+            a = {"type": "choice", "choice": k[1], "probabilities": {x: (0.82 if x == k[1] else round(0.18 / (len(k) - 1), 4)) for x in k}, "confidence": 0.61}
+        return 200, "application/json", J({"model": b["model"], "answers": {"q": a}, "usage": {"input_tokens": 50, "output_tokens": 1}})
+    server.routes[("GET", "/api/tags")] = tags
+    server.routes[("POST", "/v1/systemone")] = systemone
+    monkeypatch.setattr(R, "OLLAMA_CLOUD", server.url)
+    st = jade.settings
+    st.decide_provider, st.ollama_key, st.ollaya_key, st.ollaya_model = "ollama-cloud", "cloud-key", "", "clef"
+    assert R.decide_server(st)[0] == "Ollama Cloud" and R.decide_server(st)[2] == {"Authorization": "Bearer cloud-key"}
+    assert await R.decide_models(st) == ["clef", "clef-flash"]   # decision models only
     r = await jade.run_tool("decide", {"state": "TypeError at list.js:42", "question": "What kind of problem?", "type": "choice", "options": ["bug", "network", "user input"]})
-    assert r.startswith("choice: 1 | confidence 0.737") and "probabilities: 1 0.737, 0 0.211, 2 0.053" in r and "model: openai/gpt-4o-mini" in r, r
-    sent = json.loads(server.seen[-1]["body"])
-    assert sent["logprobs"] is True and sent["max_tokens"] == 1 and "A. bug\nB. network\nC. user input" in sent["messages"][1]["content"]
+    assert r.startswith("choice: network | confidence 0.610") and "probabilities: network 0.820, bug 0.090, user input 0.090" in r and "model: clef" in r, r   # option names, as Ollaya answers
+    assert seen[-1]["body"]["questions"]["q"]["criteria"] == {"bug": "bug", "network": "network", "user input": "user input"} and seen[-1]["auth"] == "Bearer cloud-key"
     d = await R.decide_data(jade, "x", "Is it late?", "yesno")
-    assert d["answer"] is True and abs(d["probabilities"]["yes"] - 0.778) < 0.01
+    assert d["answer"] is True and d["probabilities"] == {"no": 0.09, "yes": 0.91} and d["confidence"] == 0.91
     d = await R.decide_data(jade, "x", "How urgent?", "score", ["low", "medium", "high"])
-    assert d["score"] == 1 and d["legend"] == "medium"
-    logprobs["on"] = False
-    assert (await jade.run_tool("decide", {"state": "s", "question": "q", "type": "choice", "options": ["a", "b", "c"]})).startswith("choice: 1 | confidence 0.600")
-    logprobs["on"] = True
-    st.openrouter_key = "wrong"
-    with pytest.raises(RuntimeError, match="OpenRouter rejected the API key"):
+    assert d["score"] == 1.4 and d["legend"]["2"] == "high"
+    long = "x" * 150
+    d = await R.decide_data(jade, "s", "q", "choice", ["short one", long])
+    assert d["choice"] == long and seen[-1]["body"]["questions"]["q"]["criteria"]["option_2"] == long
+    st.ollaya_model = "clef:cloud"
+    await R.decide_data(jade, "s", "q", "yesno")
+    assert seen[-1]["body"]["model"] == "clef"   # the local-server name is sent to ollama.com without :cloud
+    st.ollaya_model, st.ollaya_key = "clef", "override"
+    await R.decide_data(jade, "s", "q", "yesno")
+    assert seen[-1]["auth"] == "Bearer override"
+    st.ollaya_key, st.ollama_key = "", "wrong"
+    with pytest.raises(RuntimeError, match="Ollama Cloud said 401.*key was rejected"):
         await jade.run_tool("decide", {"state": "s", "question": "q", "type": "yesno"})
-    st.openrouter_key, st.provider, st.api_key = "", "ollama", ""
-    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
-    assert (await R.decide_data(jade, "x", "q", "yesno"))["answer"] is True   # the key from the environment
+    st.ollama_key, st.ollaya_model = "cloud-key", "laya"
+    with pytest.raises(RuntimeError, match='no decision model "laya"; try clef'):
+        await jade.run_tool("decide", {"state": "s", "question": "q", "type": "yesno"})
+    st.ollama_key, st.ollaya_model = "", "clef"
+    with pytest.raises(RuntimeError, match="no Ollama Cloud API key"):
+        await jade.run_tool("decide", {"state": "s", "question": "q", "type": "yesno"})
+    st.decide_provider = "ollaya"

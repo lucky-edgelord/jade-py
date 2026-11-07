@@ -884,7 +884,7 @@ PAGES.logs = async (v, parts) => {
 
 /* ---------------- settings ---------------- */
 const GROUPS = [
-  ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
+  ['The model', ['provider', 'model', 'host', 'base_url', 'api_key', 'fallbacks', 'openrouter_key', 'temperature', 'num_ctx', 'think', 'keep_alive', 'request_timeout']],
   ['Trajectory log (fine-tuning data; 👍/👎 for DPO / KTO)', ['traj_on', 'traj_format', 'traj_filter', 'traj_thinking', 'traj_meta']],
   ['Knowledge graph (facts, rules, and verification with proofs)', ['kg_verify']],
   ['Autonomous mode (the 3-tier scheduler; the Queue page)', ['auto_on', 'auto_steps_hour', 'auto_daily', 'auto_quiet_from', 'auto_quiet_to', 'auto_share', 'auto_gantt', 'auto_deny']],
@@ -896,7 +896,7 @@ const GROUPS = [
   ['Curiosity', ['cu_on', 'cu_min', 'cu_max', 'cu_from', 'cu_to', 'cu_cap', 'cu_tools', 'cu_acts_off']],
   ['Backup', ['ab_on', 'ab_url', 'ab_token', 'ab_hours', 'ab_kind', 'ab_keys', 'ab_encrypt', 'ab_pass']],
   ['Web and search', ['search', 'searx_url', 'ollama_key', 'user_agent', 'browser_on', 'browser_path', 'browser_headless']],
-  ['Embeddings and decisions', ['embed_on', 'embed_model', 'embed_host', 'decide_provider', 'ollaya_host', 'ollaya_model', 'ollaya_key', 'decide_ollama_host', 'openrouter_key']],
+  ['Embeddings and decisions', ['embed_on', 'embed_model', 'embed_host', 'decide_provider', 'ollaya_host', 'ollaya_model', 'ollaya_key', 'decide_ollama_host']],
   ['On-device models and USB', ['onnx_on', 'onnx_providers', 'litert_on', 'usb_on', 'usb_allow']],
   ['Jade Fleet', ['fleet_url', 'fleet_token', 'fleet_device']],
   ['Messengers', ['vector', 'discord']],
