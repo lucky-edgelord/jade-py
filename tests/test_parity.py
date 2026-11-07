@@ -408,3 +408,52 @@ async def test_fleet(jade, server, fake):
         await jade.run_tool("vault_search", {"query": "x"})
     from jade.backup import SECRET_KEYS
     assert "fleet_token" in SECRET_KEYS
+
+
+# ---------------------------------------------------------------- OpenRouter: a provider and a decision server (Jade Vault 2.27)
+async def test_openrouter(jade, server, monkeypatch):
+    import math as _m
+    from jade.providers import make_provider
+    logprobs = {"on": True}
+
+    def models(h, body):
+        return 200, "application/json", J({"data": [{"id": "anthropic/claude-sonnet-4.5", "supported_parameters": ["tools"]}, {"id": "openai/gpt-4o-mini", "supported_parameters": ["tools", "logprobs", "top_logprobs"]},
+                                                    {"id": "some/base", "supported_parameters": ["temperature"]}]})
+
+    def chat(h, body):
+        b = json.loads(body)
+        if h.headers.get("authorization") != "Bearer sk-or-test":
+            return 401, "application/json", J({"error": {"message": "No auth credentials found"}})
+        if b.get("response_format"):
+            return 200, "application/json", J({"choices": [{"message": {"content": '{"probabilities": {"A": 0.2, "B": 0.6, "C": 0.2}}'}}]})
+        top = [{"token": "B", "logprob": _m.log(0.7)}, {"token": "A", "logprob": _m.log(0.2)}, {"token": " C", "logprob": _m.log(0.05)}, {"token": "The", "logprob": _m.log(0.05)}]
+        return 200, "application/json", J({"choices": [{"message": {"content": "B"}, "logprobs": {"content": [{"token": "B", "logprob": _m.log(0.7), "top_logprobs": top}]} if logprobs["on"] else None}]})
+    server.routes[("GET", "/api/v1/models")] = models
+    server.routes[("POST", "/api/v1/chat/completions")] = chat
+    st = jade.settings
+    # the provider: OpenRouter's address (here the stand-in), its attribution headers, and only the models that take tools
+    st.provider, st.base_url, st.api_key = "openrouter", server.url + "/api/v1", "sk-or-test"
+    p = make_provider(st)
+    assert await p.models() == ["anthropic/claude-sonnet-4.5", "openai/gpt-4o-mini"]
+    assert st.openai_base_and_key("openrouter")[0] == server.url + "/api/v1"
+    from jade.providers.openai import OpenAIProvider
+    assert OpenAIProvider("https://openrouter.ai/api/v1", api_key="k").headers["X-Title"] == "Jade"
+    # decisions
+    st.decide_provider, st.ollaya_model, st.openrouter_base, st.openrouter_key = "openrouter", "openai/gpt-4o-mini", server.url + "/api/v1", ""
+    r = await jade.run_tool("decide", {"state": "TypeError at list.js:42", "question": "What kind of problem?", "type": "choice", "options": ["bug", "network", "user input"]})
+    assert r.startswith("choice: 1 | confidence 0.737") and "probabilities: 1 0.737, 0 0.211, 2 0.053" in r and "model: openai/gpt-4o-mini" in r, r
+    sent = json.loads(server.seen[-1]["body"])
+    assert sent["logprobs"] is True and sent["max_tokens"] == 1 and "A. bug\nB. network\nC. user input" in sent["messages"][1]["content"]
+    d = await R.decide_data(jade, "x", "Is it late?", "yesno")
+    assert d["answer"] is True and abs(d["probabilities"]["yes"] - 0.778) < 0.01
+    d = await R.decide_data(jade, "x", "How urgent?", "score", ["low", "medium", "high"])
+    assert d["score"] == 1 and d["legend"] == "medium"
+    logprobs["on"] = False
+    assert (await jade.run_tool("decide", {"state": "s", "question": "q", "type": "choice", "options": ["a", "b", "c"]})).startswith("choice: 1 | confidence 0.600")
+    logprobs["on"] = True
+    st.openrouter_key = "wrong"
+    with pytest.raises(RuntimeError, match="OpenRouter rejected the API key"):
+        await jade.run_tool("decide", {"state": "s", "question": "q", "type": "yesno"})
+    st.openrouter_key, st.provider, st.api_key = "", "ollama", ""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    assert (await R.decide_data(jade, "x", "q", "yesno"))["answer"] is True   # the key from the environment

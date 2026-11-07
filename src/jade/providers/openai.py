@@ -38,6 +38,9 @@ def to_openai(messages: list[dict]) -> list[dict]:
     return out
 
 
+OPENROUTER_HEADERS = {"HTTP-Referer": "https://github.com/lucky-edgelord/jade-py", "X-Title": "Jade"}   # OpenRouter's app attribution
+
+
 class OpenAIProvider(Provider):
     name = "openai"
 
@@ -47,7 +50,7 @@ class OpenAIProvider(Provider):
             raise ProviderError("no base URL for the OpenAI-compatible provider (settings.base_url)")
         self.base = base_url.rstrip("/")
         self.model, self.name, self.temperature = model, name, temperature
-        self.headers = {"Content-Type": "application/json", **(headers or {})}
+        self.headers = {"Content-Type": "application/json", **(OPENROUTER_HEADERS if "openrouter.ai" in self.base else {}), **(headers or {})}
         if api_key:
             self.headers["Authorization"] = f"Bearer {api_key}"
         self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0))
@@ -73,7 +76,8 @@ class OpenAIProvider(Provider):
         if r.status_code != 200:
             raise await self._err(r)
         j = r.json()
-        ids = [m.get("id") or m.get("name") for m in (j.get("data") or j.get("models") or [])]
+        # OpenRouter says which models take tools: offer only those
+        ids = [m.get("id") or m.get("name") for m in (j.get("data") or j.get("models") or []) if not isinstance(m.get("supported_parameters"), list) or "tools" in m["supported_parameters"]]
         return [i for i in ids if i and not any(s in i.lower() for s in SKIP_MODELS)]
 
     async def chat(self, messages, tools=None, *, model=None, **opts) -> AsyncIterator[Chunk]:

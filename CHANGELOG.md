@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.0
+
+OpenRouter, as in Jade Vault 2.27.
+
+- **OpenRouter as a provider** (`provider = "openrouter"`, key in `api_key` or `OPENROUTER_API_KEY`): OpenRouter's attribution headers are sent, and the model list shows only the models that can call tools. Model ids look like `anthropic/claude-sonnet-4.5`, and `openrouter:…` works in `fallbacks` and `router_models`.
+- **Decisions through OpenRouter** (`decide_provider = "openrouter"`, `ollaya_model` an OpenRouter model with log probabilities such as `openai/gpt-4o-mini`, key in `openrouter_key`, `OPENROUTER_API_KEY` or `api_key` when the provider is openrouter): `decide`, scripts' `jade.decide`, the think tool's decide checks and the model router. The options are lettered, the model answers with one letter, and the probabilities come from that token's log probabilities, normalised over the options. A model without them is asked for probabilities as JSON. Up to 26 options.
+
 ## 0.13.0
 
 Autonomous mode, Plans and Jade Lisp, as in Jade Vault 2.26.
