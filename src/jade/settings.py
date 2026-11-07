@@ -144,7 +144,9 @@ class Settings(BaseSettings):
     embed_host: str = ""
 
     # decisions: Ollaya, or Ollama 0.35+ (the same /v1/systemone API); the decision model is ollaya_model on either
-    decide_provider: Literal["ollaya", "ollama"] = Field(default="ollaya", description="the decision server: ollaya, or ollama (0.35 and newer)")
+    decide_provider: Literal["ollaya", "ollama", "openrouter"] = Field(default="ollaya", description="the decision server: ollaya, ollama (0.35 and newer), or openrouter (ollaya_model is then an OpenRouter model with log probabilities, e.g. openai/gpt-4o-mini)")
+    openrouter_key: str = Field(default="", description="OpenRouter API key for decisions (blank: OPENROUTER_API_KEY, or api_key when the provider is openrouter)")
+    openrouter_base: str = "https://openrouter.ai/api/v1"
     ollaya_host: str = "http://localhost:11435"
     ollaya_model: str = ""
     ollaya_key: str = ""

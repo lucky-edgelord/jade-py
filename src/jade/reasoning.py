@@ -64,6 +64,8 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
     elif t != "noul":
         raise ToolError("type must be choice, score or yesno")
     body = {"model": model, "state": state if isinstance(state, str) else json.dumps(state, ensure_ascii=False, default=str), "questions": {"q": q}}
+    if st.decide_provider == "openrouter":
+        return _decide_out(await openrouter_systemone(st, body), type, t, model, "OpenRouter")
     name, base, headers = decide_server(st)
     try:
         async with httpx.AsyncClient(timeout=60) as h:
@@ -79,7 +81,10 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
         if name == "Ollama" and r.status_code == 404 and "systemone" not in str(m):
             m = f"{m} (decisions need Ollama 0.35 or newer)"
         raise ToolError(f"{name} said {r.status_code}: {str(m)[:300]}")
-    j = r.json()
+    return _decide_out(r.json(), type, t, model, name)
+
+
+def _decide_out(j: dict, type: str, t: str, model: str, name: str) -> dict:   # noqa: A002
     ans = (j.get("answers") or {}).get("q")
     if not ans:
         raise ToolError(f"{name} returned no answer")
@@ -95,6 +100,110 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
     if "noul" in ans:
         out["answer"] = out["result"] = ans["noul"]
     return out
+
+
+# ---- decisions through OpenRouter: the same /v1/systemone answers, from a model's log probabilities (as in the app)
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def openrouter_key(st) -> str:
+    import os
+    if st.openrouter_key:
+        return st.openrouter_key
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return os.environ["OPENROUTER_API_KEY"]
+    return st.api_key if st.provider == "openrouter" else ""
+
+
+async def _or_post(st, body: dict) -> dict:
+    from .providers.openai import OPENROUTER_HEADERS
+    key = openrouter_key(st)
+    if not key:
+        raise ToolError("no OpenRouter API key (openrouter_key, or OPENROUTER_API_KEY)")
+    try:
+        async with httpx.AsyncClient(timeout=60) as h:
+            r = await h.post(st.openrouter_base.rstrip("/") + "/chat/completions", json=body, headers={"Authorization": "Bearer " + key, **OPENROUTER_HEADERS})
+    except httpx.HTTPError as e:
+        raise ToolError(f"could not reach OpenRouter: {e}") from None
+    try:
+        j = r.json()
+    except ValueError:
+        j = {}
+    if r.status_code >= 400 or j.get("error"):
+        e = j.get("error")
+        m = (e.get("message") if isinstance(e, dict) else e) or r.text[:300]
+        raise ToolError("OpenRouter rejected the API key (401)" if r.status_code == 401 else "OpenRouter: no credits left (402)" if r.status_code == 402 else f"OpenRouter: {m}")
+    return j
+
+
+def _probs_from_logprobs(lp, letters: list[str]) -> list[float] | None:
+    first = ((lp or {}).get("content") or [None])[0]
+    if not first:
+        return None
+    cands = list(first.get("top_logprobs") or []) + [{"token": first.get("token"), "logprob": first.get("logprob")}]
+    p, seen, used = [0.0] * len(letters), False, set()
+    for c in cands:
+        tok = re.sub(r"[.):\s]+$", "", str(c.get("token") or "").strip()).upper()
+        lpv = c.get("logprob")
+        if tok not in letters or not isinstance(lpv, (int, float)) or (tok, lpv) in used:
+            continue
+        used.add((tok, lpv))
+        p[letters.index(tok)] += math.exp(lpv)
+        seen = True
+    if not seen:
+        return None
+    s = sum(p)
+    return [x / s for x in p]
+
+
+async def openrouter_systemone(st, body: dict) -> dict:
+    """Answer a /v1/systemone request with an OpenRouter model: the options are lettered, the model answers with one
+    letter, and the probabilities are read from that token's log probabilities (a model without them is asked for
+    probabilities as JSON)."""
+    model = body["model"]
+    out = {}
+    for name, q in (body.get("questions") or {}).items():
+        t = q.get("type") or "choice"
+        opts = ["no", "yes"] if t == "noul" else [str(x) for x in (q.get("criteria") or [])]
+        if len(opts) < 2:
+            raise ToolError(f"question {name}: needs at least 2 options")
+        if len(opts) > len(LETTERS):
+            raise ToolError(f"question {name}: OpenRouter decisions take at most {len(LETTERS)} options")
+        L = list(LETTERS[:len(opts)])
+        listing = "\n".join(f"{L[i]}. {o}" for i, o in enumerate(opts))
+        ask = f"{q.get('instructions', '')}\n\n" + ("A. no\nB. yes" if t == "noul" else ("Levels, lowest first:\n" if t == "score" else "Options:\n") + listing)
+        messages = [{"role": "system", "content": "You are a careful, calibrated classifier. Read the text, then answer the question with the letter of the best option and nothing else."},
+                    {"role": "user", "content": f"Text:\n{str(body.get('state') or '')[:24000]}\n\nQuestion: {ask}\n\nAnswer with one letter ({L[0]}-{L[-1]})."}]
+        j = await _or_post(st, {"model": model, "messages": messages, "temperature": 0, "max_tokens": 1, "logprobs": True, "top_logprobs": 20})
+        ch = (j.get("choices") or [{}])[0]
+        probs = _probs_from_logprobs(ch.get("logprobs"), L)
+        if probs is None:
+            probs = await _probs_from_json(st, model, messages, L, str((ch.get("message") or {}).get("content") or ""))
+        best = max(range(len(probs)), key=lambda i: probs[i])
+        a: dict = {"type": t, "probabilities": {(o if t == "noul" else str(i)): round(probs[i], 6) for i, o in enumerate(opts)}, "confidence": round(probs[best], 6)}
+        if t == "choice":
+            a["choice"] = best
+        elif t == "score":
+            a["score"], a["legend"] = best, opts[best]
+        else:
+            a["noul"] = best == 1
+        out[name] = a
+    return {"model": model, "answers": out, "via": "openrouter"}
+
+
+async def _probs_from_json(st, model, messages, L, said: str) -> list[float]:
+    try:
+        content = re.sub(r"\n\nAnswer with one letter[\s\S]*$", "", messages[1]["content"]) + "\n\nReply with JSON only: {\"probabilities\": {" + ", ".join(f'"{x}": number' for x in L) + "}}, your probability for each option, summing to 1."
+        j = await _or_post(st, {"model": model, "temperature": 0, "max_tokens": 400, "response_format": {"type": "json_object"}, "messages": [messages[0], {"role": "user", "content": content}]})
+        txt = str(((j.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
+        o = json.loads(txt[txt.index("{"):txt.rindex("}") + 1]).get("probabilities") or {}
+        p = [max(0.0, float(o.get(x) or 0)) for x in L]
+        if sum(p) > 0:
+            return [x / sum(p) for x in p]
+    except (ToolError, ValueError, TypeError, AttributeError):
+        pass
+    i = L.index(said.strip()[:1].upper()) if said.strip()[:1].upper() in L else -1
+    return [1 / len(L)] * len(L) if i < 0 else [1.0 if k == i else 0.0 for k in range(len(L))]
 
 
 def decide_text(o: dict) -> str:
