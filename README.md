@@ -199,8 +199,8 @@ in a read-only sandbox, a shell command, a file check, a rubric or a judge; the 
 episodes in `/Jade/Tot`), **delegate** (a sub-agent with a clean context and read-only tools unless `write: true`,
 returning one short report), and **decide** (the local decision model: calibrated probabilities for triage,
 scores and yes/no; set `ollaya_model`, and `decide_provider = "ollaya"` with `ollaya_host`, or `"ollama"` for
-Ollama 0.35 and newer, which serves the same `/v1/systemone` API, at `decide_ollama_host` or `host`, or `"openrouter"`
-with an OpenRouter model that reports log probabilities, such as `openai/gpt-4o-mini`, and `openrouter_key`).
+Ollama 0.35 and newer, which serves the same `/v1/systemone` API, at `decide_ollama_host` or `host`, or `"ollama-cloud"`
+for the hosted decision models (laya, jev…) with `ollama_key`, or `"openrouter"` with an OpenRouter model that reports log probabilities, such as `openai/gpt-4o-mini`, and `openrouter_key`).
 
 When the model asks for several `web_search` / `web_fetch` calls in one round they run at the same time; results
 go back in the order it asked (in step mode, a call you edit or skip has its early run dropped).

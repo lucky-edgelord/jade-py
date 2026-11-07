@@ -33,6 +33,11 @@ if TYPE_CHECKING:
 # ================================================================ decide (Ollaya, or Ollama 0.35+)
 def decide_server(st) -> tuple[str, str, dict]:
     """(name, base URL, headers) of the decision server: Ollaya, or Ollama (same /v1/systemone API)."""
+    if st.decide_provider == "ollama-cloud":
+        import os
+        key = st.ollaya_key or st.ollama_key or os.environ.get("OLLAMA_API_KEY", "")
+        base = (st.ollama_cloud_base or "https://ollama.com").rstrip("/")
+        return "Ollama Cloud", base, ({"Authorization": "Bearer " + key} if key else {})
     if st.decide_provider == "ollama":
         base = (st.decide_ollama_host or st.host or "http://localhost:11434").rstrip("/")
         headers = {"Authorization": "Bearer " + st.ollama_key} if st.ollama_key and base.startswith("https://ollama.com") else {}
@@ -71,6 +76,8 @@ async def decide_data(jade: "Jade", state: Any = "", question: str = "", type: s
         async with httpx.AsyncClient(timeout=60) as h:
             r = await h.post(base + "/v1/systemone", json=body, headers=headers)
     except httpx.HTTPError as e:
+        if name == "Ollama Cloud":
+            raise ToolError(f"could not reach Ollama Cloud at {base}: {e}") from None
         hint = '"ollaya serve"' if name == "Ollaya" else "Ollama 0.35 or newer"
         raise ToolError(f"could not reach {name} at {base}. Is {hint} running? ({e})") from None
     if r.status_code >= 400:
